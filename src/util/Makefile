@@ -1,6 +1,6 @@
 include ../Makefile.config
-CPPFLAGS = -g -I${TOP}
-LDFLAGS = -lpthread -lstdc++ -lglog -lgtest -lgtest_main
+CPPFLAGS = ${CPPFLAGS} -g
+LDFLAGS = ${LDFLAGS} -lpthread -lstdc++ -lglog -lgtest -lgtest_main
 
 .PHONY: all
 all: bloomfilter_test lrucache_test url_test

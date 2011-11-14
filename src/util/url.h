@@ -26,8 +26,8 @@
  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  THE POSSIBILITY OF SUCH DAMAGE.
 */
-#ifndef UTIL_URL_H_
-#define UTIL_URL_H_
+#ifndef _UTIL_URL_H_
+#define _UTIL_URL_H_
 
 #include <stdlib.h>
 #include <stdio.h>

@@ -33,9 +33,11 @@
 
 #include <string>
 #include <vector>
-using namespace std;
 
 namespace util {
+
+using std::string;
+using std::vector;
 
 class BloomFilter {
  public:
@@ -48,7 +50,7 @@ class BloomFilter {
    * function to prevent the same false positives from
    * appearing in different filters.
    */
-  void reset(int size=(1 << 20), uint32_t seed=0);
+  void reset(int size = (1 << 20), uint32_t seed = 0);
 
   /**
    * Sets a value in the bloom filter
@@ -77,6 +79,5 @@ class BloomFilter {
   uint32_t _size;
   uint8_t *_hash;
 };
-
 }
 #endif

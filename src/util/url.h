@@ -31,10 +31,13 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <iostream>
 #include <string>
-using namespace std;
 
 namespace util {
+
+using std::string;
+using std::ostream;
 
 /**
  * Provides very basic string<-->URL conversion and manipulation of
@@ -50,8 +53,8 @@ class URL {
 
  public:
   URL() {}
-  URL(const string& s) { parse(s); }
-  URL(const URL& u) { *this = u; }
+  explicit URL(const string& s) { parse(s); }
+  explicit URL(const URL& u) { *this = u; }
   virtual ~URL() {}
 
   URL& operator=(const URL &other) {
@@ -105,7 +108,7 @@ class URL {
         ((_scheme == "http" && _port == 80) ? "" : (string(":") + buf)) + "/" +
         _path;
   }
-  operator string() const { return this->toString(); }
+  operator const string() const { return this->toString(); }
 
   // Methods to access and/or change a URLs components
   const string& scheme() const { return _scheme; }
@@ -117,8 +120,12 @@ class URL {
   const string& path() const { return _path; }
   string& path() { return _path; }
   bool valid() const { return _valid; }
-
 };
-}
 
+// Provide an ostream operator for easier printing / debugging
+ostream& operator<<(ostream& out, const URL &url) {
+  out << url.toString();
+  return out;
+}
+}
 #endif

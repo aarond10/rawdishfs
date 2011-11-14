@@ -46,13 +46,13 @@ uint64_t hash(const char *str, int seed) {
   const uint64_t FNV_prime = 1099511628211;
   uint64_t hash = FNV_offset_basis;
   // seed
-  for (int i = 0;i < 4; i++) {
+  for (int i = 0; i < 4; i++) {
     hash = hash ^ (seed & 0xff);
     hash *= FNV_prime;
     seed >>= 8;
   }
   // str
-  while(*str) {
+  while (*str) {
     hash = hash ^ (uint8_t)*(str++);
     hash *= FNV_prime;
   }
@@ -85,14 +85,14 @@ void BloomFilter::reset(int size, uint32_t seed) {
 void BloomFilter::set(const string &key) {
   for (int i = 0; i < 6; i++) {
     uint32_t p = hash(key.c_str(), _seed + i) % _size;
-    _hash[p>>3] |= 1 << (p & 0x7); 
+    _hash[p>>3] |= 1 << (p & 0x7);
   }
 }
 
 bool BloomFilter::mayContain(const string &key) const {
   for (int i = 0; i < 6; i++) {
     uint32_t p = hash(key.c_str(), _seed + i) % _size;
-    if(!(_hash[p>>3] & 1 << (p & 0x7))) {
+    if (!(_hash[p>>3] & 1 << (p & 0x7))) {
       return false;
     }
   }
@@ -101,8 +101,8 @@ bool BloomFilter::mayContain(const string &key) const {
 
 vector<uint8_t> BloomFilter::serialize() const {
   vector<uint8_t> ret(((_size+7)/8)+sizeof(uint32_t)+sizeof(uint32_t), 0);
-  *(uint32_t *)(&ret[0]) = _seed;
-  *(uint32_t *)(&ret[sizeof(uint32_t)]) = _size;
+  *reinterpret_cast<uint32_t *>(&ret[0]) = _seed;
+  *reinterpret_cast<uint32_t *>(&ret[sizeof(uint32_t)]) = _size;
   memcpy(&ret[sizeof(uint32_t)*2], _hash, (_size+7)/8);
   return ret;
 }
@@ -112,14 +112,14 @@ BloomFilter &BloomFilter::deserialize(const vector<uint8_t> &src) {
     LOG(INFO) << "Invalid serialized bloomfilter of length: " << src.size();
     return *this;
   }
-  uint32_t seed = *(uint32_t *)(&src[0]);
-  uint32_t size = *(uint32_t *)(&src[sizeof(uint32_t)]);
+  uint32_t seed = *reinterpret_cast<const uint32_t *>(&src[0]);
+  uint32_t size = *reinterpret_cast<const uint32_t *>(&src[sizeof(uint32_t)]);
   if (size < 0 || size > (100 * 1024 * 1024)) {
     LOG(INFO) << "Invalid serialized bloomfilter of reported size: " << size;
     return *this;
   }
   if (src.size() != (((size+7)/8)+sizeof(uint32_t)+sizeof(uint32_t))) {
-    LOG(INFO) << "Size of vector doesn't match expected size (" << src.size() 
+    LOG(INFO) << "Size of vector doesn't match expected size (" << src.size()
         << " != " << (((size+7)/8)+sizeof(uint32_t)+sizeof(uint32_t)) << ")";
     return *this;
   }
@@ -128,5 +128,4 @@ BloomFilter &BloomFilter::deserialize(const vector<uint8_t> &src) {
   memcpy(_hash, &src[sizeof(uint32_t)*2], (_size+7)/8);
   return *this;
 }
-
 }

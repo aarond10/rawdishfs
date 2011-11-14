@@ -7,7 +7,7 @@ all: bloomfilter_test lrucache_test url_test
 
 .PHONY: clean
 clean:
-	rm -f *.o bloomfilter_test lrucache_test url_test
+	rm -f *.a *.o bloomfilter_test lrucache_test url_test
 
 util.a: bloomfilter.o
 	ar cr $@ $^

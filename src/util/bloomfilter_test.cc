@@ -61,14 +61,13 @@ TEST(BloomFilter, FalsePositives) {
 }
 
 TEST(BloomFilter, SerializeDeserialize) {
-  vector<uint8_t> buf;
+  std::vector<uint8_t> buf;
   util::BloomFilter bf1, bf2;
 
   bf1.set("apple");
   bf1.set("banana");
   bf1.set("carrot");
   buf = bf1.serialize();
-  //printf("Bloomfilter serialized to %d bytes\n", (int)buf.size());
   bf2.deserialize(buf);
   EXPECT_TRUE(bf2.mayContain("apple"));
   EXPECT_TRUE(bf2.mayContain("banana"));
@@ -76,7 +75,7 @@ TEST(BloomFilter, SerializeDeserialize) {
 }
 
 TEST(BloomFilter, SerializeDeserializeTruncated) {
-  vector<uint8_t> buf;
+  std::vector<uint8_t> buf;
   util::BloomFilter bf1, bf2;
 
   bf1.set("apple");
@@ -104,11 +103,11 @@ TEST(BloomFilter, Reset) {
 
 TEST(BloomFilter, BadData) {
   util::BloomFilter bf1;
-  vector<uint8_t> baddata;
+  std::vector<uint8_t> baddata;
   bf1.set("apple");
 
   // Very short buffer.
-  for(int i = 0; i < 3; i++) {
+  for (int i = 0; i < 3; i++) {
     baddata.push_back(rand());
   }
   bf1.deserialize(baddata);
@@ -116,7 +115,7 @@ TEST(BloomFilter, BadData) {
   EXPECT_TRUE(!bf1.mayContain("banana"));
 
   // Longer buffer.
-  for(int i = 0; i < 5000; i++) {
+  for (int i = 0; i < 5000; i++) {
     baddata.push_back(rand());
   }
   bf1.deserialize(baddata);
@@ -125,17 +124,11 @@ TEST(BloomFilter, BadData) {
 }
 
 TEST(BloomFilter, Benchmark) {
-  // TODO: Move this to a separate program
+  // TODO(aarond10): Move this to a separate program?
   util::BloomFilter bf1;
-  //struct timeval start, stop;
-
-  //gettimeofday(&start, 0);
   for (int i = 0; i < 300000; i++) {
     bf1.set("apple");
     bf1.set("banana");
     bf1.set("carrot");
   }
-  //gettimeofday(&stop, 0);
-  //printf("Took %ldms to add 300000 items to filter.\n", (stop.tv_sec - start.tv_sec)*1000 + (stop.tv_usec - start.tv_usec)/1000);
 }
-

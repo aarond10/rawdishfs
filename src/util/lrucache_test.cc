@@ -29,13 +29,14 @@
 #include "lrucache.h"
 
 #include <gtest/gtest.h>
+#include <vector>
 
 TEST(LRUCacheTest, BasicTests) {
   util::LRUCache lru1(3);
-  vector<uint8_t> buf1 ,buf2;
+  std::vector<uint8_t> buf1, buf2;
 
   buf1.resize(10);
-  strcpy((char *)&buf1[0], "012345678");
+  strcpy(reinterpret_cast<char *>(&buf1[0]), "012345678");
 
   lru1.put("a", buf1);
   lru1.put("b", buf1);

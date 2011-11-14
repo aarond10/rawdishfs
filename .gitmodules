@@ -1,3 +1,6 @@
 [submodule "third_party/epoll_threadpool"]
 	path = third_party/epoll_threadpool
 	url = git@github.com:aarond10/epoll_threadpool.git
+[submodule "third_party/msgpack"]
+	path = third_party/msgpack
+	url = https://github.com/msgpack/msgpack.git

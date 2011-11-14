@@ -11,3 +11,13 @@ Disclaimer
 ----------
 
 This software is still ALPHA. Use at your own risk. 
+
+Dependencies
+------------
+
+I've tried to keep dependencies fairly limited unless they really add to the project. msgpack is used for RPC serialization, google logging for debugging and gtest for unit tests.
+
+On an ubuntu/debian box, you can probably get away with:
+
+    $ sudo apt-get install libmsgpack-dev libgoogle-glog-dev libgtest-dev
+

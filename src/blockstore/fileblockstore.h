@@ -26,8 +26,8 @@
  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  THE POSSIBILITY OF SUCH DAMAGE.
 */
-#ifndef BLOCKSTORE_FILEBLOCKSTORE_H_
-#define BLOCKSTORE_FILEBLOCKSTORE_H_
+#ifndef _BLOCKSTORE_FILEBLOCKSTORE_H_
+#define _BLOCKSTORE_FILEBLOCKSTORE_H_
 
 #include <stdint.h>
 #include <dirent.h>
@@ -126,5 +126,4 @@ class FileBlockStore {
   uint32_t _usedBlocks;
 };
 }
-
 #endif

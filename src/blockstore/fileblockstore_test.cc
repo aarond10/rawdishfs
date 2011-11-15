@@ -43,7 +43,7 @@ TEST(FileBlockStoreTest, BasicTests) {
   memset(buf1, 0, sizeof(buf1));
   blockstore::FileBlockStore bs1("/tmp/bs1", 16);
 
-  EXPECT_TRUE(!bs1.get("apple", buf1));
+  EXPECT_FALSE(bs1.get("apple", buf1));
   strcpy((char *)buf1, "apple");
   EXPECT_TRUE(bs1.put("apple", buf1));
   sync();
@@ -52,9 +52,10 @@ TEST(FileBlockStoreTest, BasicTests) {
   uint32_t blocks_a = bs1.numTotalBlocks();
   uint32_t blocks_a2 = bs1.numFreeBlocks();
 
-  EXPECT_TRUE(!bs1.get("banana", buf1));
+  EXPECT_FALSE(bs1.get("banana", buf1));
   strcpy((char *)buf1, "banana");
   EXPECT_TRUE(bs1.put("banana", buf1));
+  sync();
   EXPECT_TRUE(bs1.get("banana", buf1));
   EXPECT_TRUE(strcmp("banana",(char *)buf1)==0);
 
@@ -66,18 +67,24 @@ TEST(FileBlockStoreTest, BasicTests) {
   EXPECT_TRUE(blocks_a==blocks_b);
   EXPECT_TRUE(blocks_a2==(blocks_b2+1));
 
-  EXPECT_EQ(string("banana"), bs1.next());
-  EXPECT_EQ(string("apple"), bs1.next());
-  EXPECT_EQ(string(""), bs1.next());
+  set<string> expected_blocks;
+  expected_blocks.insert("apple");
+  expected_blocks.insert("banana");
+  string key;
+  while ((key = bs1.next()) != "") {
+    EXPECT_TRUE(expected_blocks.find(key) != expected_blocks.end());
+    expected_blocks.erase(key);
+  }
+  EXPECT_EQ(0, expected_blocks.size());
  
   EXPECT_TRUE(bs1.bloomfilter().mayContain("banana"));
-  EXPECT_TRUE(!bs1.bloomfilter().mayContain("carrot"));
+  EXPECT_FALSE(bs1.bloomfilter().mayContain("carrot"));
 
   EXPECT_TRUE(bs1.remove("apple"));
   EXPECT_TRUE(bs1.remove("banana"));
 
   EXPECT_EQ(string(""), bs1.next());
 
-  EXPECT_TRUE(!bs1.bloomfilter().mayContain("apple"));
-  EXPECT_TRUE(!bs1.bloomfilter().mayContain("banana"));
+  EXPECT_FALSE(bs1.bloomfilter().mayContain("apple"));
+  EXPECT_FALSE(bs1.bloomfilter().mayContain("banana"));
 }

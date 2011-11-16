@@ -1,6 +1,6 @@
 include ../Makefile.config
-CPPFLAGS = ${CPPFLAGS} -g
-LDFLAGS = ${LDFLAGS} -lpthread -lstdc++ -lglog -lgtest -lgtest_main
+CPPFLAGS:= ${CPPFLAGS} -g
+LDFLAGS:= ${LDFLAGS} -lpthread -lstdc++ -lglog -lgtest -lgtest_main
 
 all: fileblockstore_test
 

@@ -32,6 +32,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <vector>
 #include <tr1/functional>
 #include <tr1/memory>
 
@@ -43,15 +44,21 @@
 
 namespace rpc {
 
+using epoll_threadpool::IOBuffer;
+using epoll_threadpool::TcpListenSocket;
+using epoll_threadpool::TcpSocket;
+
 using std::map;
 using std::set;
 using std::string;
 using std::tr1::bind;
 using std::tr1::enable_shared_from_this;
 using std::tr1::function;
-using std::tr1::placeholders;
 using std::tr1::shared_ptr;
 using std::tr1::weak_ptr;
+using std::vector;
+
+using namespace std::tr1;
 
 /**
  * Runs an RPC server on a given TcpListenSocket
@@ -76,7 +83,7 @@ class RPCServer {
    * RPCServer::setOnAcceptCallback to allow users to do their own
    * client management.
    */
-  class Connection : public enable_shared_from_this<Connection> {
+  class Connection {
    public:
     virtual ~Connection();
 
@@ -89,7 +96,7 @@ class RPCServer {
     Connection(shared_ptr< map<string,RPCFunc> > funcs, 
                shared_ptr<TcpSocket> s);
 
-    class Internal : enable_shared_from_this<Internal> {
+    class Internal : public enable_shared_from_this<Internal> {
      public:
       Internal(shared_ptr< map<string,RPCFunc> > funcs, 
                shared_ptr<TcpSocket> s);
@@ -111,7 +118,6 @@ class RPCServer {
       msgpack::unpacker _pac;
       shared_ptr< map< string, RPCFunc > > _funcs;
       function<void()> _disconnectCallback;
-      pthread_mutex_t _mutex;
     };
     shared_ptr<Internal> _internal;
   };
@@ -394,14 +400,25 @@ class RPCClient {
   void setDisconnectCallback(function<void()> callback);
 
  private:
-  void onReceive(IOBuffer *buf);
-  void onDisconnect();
+  class Internal : public enable_shared_from_this<Internal> {
+   public:
+    Internal(shared_ptr<TcpSocket> s);
+    virtual ~Internal();
 
-  function<void()> _disconnectCallback;
-  shared_ptr<TcpSocket> _socket;
-  msgpack::unpacker _pac;
-  uint64_t _reqId;
-  map< uint64_t, function<void(IOBuffer*)> > _respCallbacks;
+    void start();
+    void disconnect();
+    void setDisconnectCallback(function<void()> callback);
+    void onReceive(IOBuffer *buf);
+    void onDisconnect();
+
+   //private:
+    function<void()> _disconnectCallback;
+    shared_ptr<TcpSocket> _socket;
+    msgpack::unpacker _pac;
+    uint64_t _reqId;
+    map< uint64_t, function<void(IOBuffer*)> > _respCallbacks;
+  };
+  shared_ptr<Internal> _internal;
 };
 
 namespace {
@@ -418,74 +435,79 @@ namespace {
 
 template<class A>
 void RPCClient::call(const char* name, function<void(A)> callback) {
-  _respCallbacks[_reqId] = bind(&msgpackResp<A>, callback, placeholders::_1);
+  _internal->_respCallbacks[_internal->_reqId] = 
+      bind(&msgpackResp<A>, callback, placeholders::_1);
   IOBuffer *buf = new IOBuffer();
   msgpack::sbuffer sbuf;
   msgpack::type::tuple<uint64_t, string, msgpack::type::raw_ref> req(
-      _reqId++, string(name), msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
+      _internal->_reqId++, string(name), msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
   msgpack::pack(buf, req);
-  _socket->write(buf);
+  _internal->_socket->write(buf);
 }
 template<class A, class B>
 void RPCClient::call(const char* name, B a0, 
     function<void(A)> callback) {
-  _respCallbacks[_reqId] = bind(&msgpackResp<A>, callback, placeholders::_1);
+  _internal->_respCallbacks[_internal->_reqId] = 
+      bind(&msgpackResp<A>, callback, placeholders::_1);
   IOBuffer *buf = new IOBuffer();
   msgpack::sbuffer sbuf;
   msgpack::pack(sbuf, msgpack::type::tuple<B>(a0));
   msgpack::type::tuple<uint64_t, string, msgpack::type::raw_ref> req(
-      _reqId++, string(name), msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
+      _internal->_reqId++, string(name), msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
   msgpack::pack(buf, req);
-  _socket->write(buf);
+  _internal->_socket->write(buf);
 }
 template<class A, class B, class C>
 void RPCClient::call(const char* name, B a0, C a1,
     function<void(A)> callback) {
-  _respCallbacks[_reqId] = bind(&msgpackResp<A>, callback, placeholders::_1);
+  _internal->_respCallbacks[_internal->_reqId] = 
+      bind(&msgpackResp<A>, callback, placeholders::_1);
   IOBuffer *buf = new IOBuffer();
   msgpack::sbuffer sbuf;
   msgpack::pack(sbuf, msgpack::type::tuple<B,C>(a0, a1));
   msgpack::type::tuple<uint64_t, string, msgpack::type::raw_ref> req(
-      _reqId++, string(name), msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
+      _internal->_reqId++, string(name), msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
   msgpack::pack(buf, req);
-  _socket->write(buf);
+  _internal->_socket->write(buf);
 }
 template<class A, class B, class C, class D>
 void RPCClient::call(const char* name, B a0, C a1, D a2,
     function<void(A)> callback) {
-  _respCallbacks[_reqId] = bind(&msgpackResp<A>, callback, placeholders::_1);
+  _internal->_respCallbacks[_internal->_reqId] = 
+      bind(&msgpackResp<A>, callback, placeholders::_1);
   IOBuffer *buf = new IOBuffer();
   msgpack::sbuffer sbuf;
   msgpack::pack(sbuf, msgpack::type::tuple<B,C,D>(a0, a1, a2));
   msgpack::type::tuple<uint64_t, string, msgpack::type::raw_ref> req(
-      _reqId++, string(name), msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
+      _internal->_reqId++, string(name), msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
   msgpack::pack(buf, req);
-  _socket->write(buf);
+  _internal->_socket->write(buf);
 }
 template<class A, class B, class C, class D, class E>
 void RPCClient::call(const char* name, B a0, C a1, D a2, E a3,
     function<void(A)> callback) {
-  _respCallbacks[_reqId] = bind(&msgpackResp<A>, callback, placeholders::_1);
+  _internal->_respCallbacks[_internal->_reqId] = 
+      bind(&msgpackResp<A>, callback, placeholders::_1);
   IOBuffer *buf = new IOBuffer();
   msgpack::sbuffer sbuf;
   msgpack::pack(sbuf, msgpack::type::tuple<B,C,D,E>(a0, a1, a2, a3));
   msgpack::type::tuple<uint64_t, string, msgpack::type::raw_ref> req(
-      _reqId++, string(name), msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
+      _internal->_reqId++, string(name), msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
   msgpack::pack(buf, req);
-  _socket->write(buf);
+  _internal->_socket->write(buf);
 }
 template<class A, class B, class C, class D, class E, class F>
 void RPCClient::call(const char* name, B a0, C a1, D a2, E a3, F a4,
     function<void(A)> callback) {
-  _respCallbacks[_reqId] = bind(&msgpackResp<A>, callback, placeholders::_1);
+  _internal->_respCallbacks[_internal->_reqId] = 
+      bind(&msgpackResp<A>, callback, placeholders::_1);
   IOBuffer *buf = new IOBuffer();
   msgpack::sbuffer sbuf;
   msgpack::pack(sbuf, msgpack::type::tuple<B,C,D,E,F>(a0, a1, a2, a3, a4));
   msgpack::type::tuple<uint64_t, string, msgpack::type::raw_ref> req(
-      _reqId++, string(name), msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
+      _internal->_reqId++, string(name), msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
   msgpack::pack(buf, req);
-  _socket->write(buf);
+  _internal->_socket->write(buf);
 }
 }
-
 #endif

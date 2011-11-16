@@ -1,3 +1,5 @@
 *.o
 *.a
 *_test
+src/include
+src/lib

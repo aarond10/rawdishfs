@@ -42,8 +42,6 @@ RPCServer::RPCServer(shared_ptr<TcpListenSocket> s)
 }
 
 RPCServer::~RPCServer() {
-  _socket.reset();
-  _connections.clear();
 }
 
 void RPCServer::start() {
@@ -62,7 +60,6 @@ void RPCServer::onAccept(shared_ptr<TcpSocket> s) {
   if (_acceptCallback) {
     _acceptCallback(r);
   } else {
-    // TODO: Locking?
     _connections.insert(r);
     r->start();
   }
@@ -74,10 +71,7 @@ RPCServer::Connection::Connection(
 }
 
 RPCServer::Connection::~Connection() {
-  _internal->disconnect();
-  // Keep internal data around until all currently executing threads complete.
-  _internal->_socket->getEventManager()->enqueueAfter(
-      std::tr1::bind(&Internal::cleanup, _internal));
+  disconnect();
 }
 
 void RPCServer::Connection::start() {
@@ -99,19 +93,24 @@ RPCServer::Connection::Internal::Internal(
 }
 
 RPCServer::Connection::Internal::~Internal() {
-  _socket->disconnect();
+  disconnect();
 }
 
 void RPCServer::Connection::Internal::start() {
   _socket->setReceiveCallback(std::tr1::bind(
-      &RPCServer::Connection::Internal::onReceive, this, std::tr1::placeholders::_1));
+      &RPCServer::Connection::Internal::onReceive, 
+          shared_from_this(), std::tr1::placeholders::_1));
   _socket->setDisconnectCallback(std::tr1::bind(
-      &RPCServer::Connection::Internal::onDisconnect, this));
+      &RPCServer::Connection::Internal::onDisconnect, shared_from_this()));
   _socket->start();
 }
 
 void RPCServer::Connection::Internal::disconnect() {
   _socket->disconnect();
+  // Note: Clearing these callbacks MIGHT dereference and delete ourselves.
+  // Don't run anything after this.
+  _socket->setReceiveCallback(NULL);
+  _socket->setDisconnectCallback(NULL);
 }
 
 void RPCServer::Connection::Internal::responseCallback(
@@ -179,35 +178,63 @@ void RPCServer::Connection::Internal::onDisconnect() {
   }
 }
 
-RPCClient::RPCClient(shared_ptr<TcpSocket> s) : _socket(s), _reqId(0) {
+RPCClient::RPCClient(shared_ptr<TcpSocket> s)
+    : _internal(new Internal(s)) {
 }
 
 RPCClient::~RPCClient() {
-  disconnect();
 }
 
 void RPCClient::start() {
-  _socket->setReceiveCallback(
-      std::tr1::bind(&RPCClient::onReceive, this, std::tr1::placeholders::_1));
-  _socket->setDisconnectCallback(
-      std::tr1::bind(&RPCClient::onDisconnect, this));
-  _socket->start();
+  _internal->start();
 }
 
 void RPCClient::disconnect() {
+  _internal->disconnect();
+}
+
+void RPCClient::setDisconnectCallback(std::tr1::function<void()> callback) {
+  _internal->setDisconnectCallback(callback);
+}
+
+RPCClient::Internal::Internal(shared_ptr<TcpSocket> s)
+    : _socket(s), _reqId(0) {
+  LOG(INFO) << "Internal()";
+}
+
+RPCClient::Internal::~Internal() {
+  LOG(INFO) << "~Internal()";
+  disconnect();
+}
+
+void RPCClient::Internal::start() {
+  _socket->setReceiveCallback(
+      std::tr1::bind(&RPCClient::Internal::onReceive, 
+          shared_from_this(), std::tr1::placeholders::_1));
+  _socket->setDisconnectCallback(
+      std::tr1::bind(&RPCClient::Internal::onDisconnect, 
+          shared_from_this()));
+  _socket->start();
+}
+
+void RPCClient::Internal::disconnect() {
   _socket->disconnect();
   for(map< uint64_t, function<void(IOBuffer*)> >::iterator i = 
       _respCallbacks.begin(); i != _respCallbacks.end(); i++) {
     LOG(WARNING) << "Pending callbacks for RPCClient will be aborted.";
     // TODO: Abort pending RPC calls.
   }
+  // Note: Clearing these callbacks MIGHT dereference and delete ourselves.
+  // Don't run anything after this.
+  _socket->setReceiveCallback(NULL);
+  _socket->setDisconnectCallback(NULL);
 }
 
-void RPCClient::setDisconnectCallback(std::tr1::function<void()> callback) {
+void RPCClient::Internal::setDisconnectCallback(std::tr1::function<void()> callback) {
   _disconnectCallback = callback;
 }
 
-void RPCClient::onReceive(IOBuffer *buf) {
+void RPCClient::Internal::onReceive(IOBuffer *buf) {
   const int buf_size = buf->size();
   const char *data = buf->pulldown(buf_size);
   if (data) {
@@ -243,10 +270,11 @@ void RPCClient::onReceive(IOBuffer *buf) {
   }
 }
 
-void RPCClient::onDisconnect() {
+void RPCClient::Internal::onDisconnect() {
   if (_disconnectCallback) {
     _disconnectCallback();
   }
+  disconnect();
 }
 
 }

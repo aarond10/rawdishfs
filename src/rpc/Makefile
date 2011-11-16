@@ -1,16 +1,15 @@
 include ../Makefile.config
+CPPFLAGS:= ${CPPFLAGS} -g
+LDFLAGS:= ${LDFLAGS} -lpthread -lstdc++ -lglog -lgtest -lgtest_main -lmsgpack -lepoll_threadpool
 
-all: fileutil rpc_test
-
-fileutil: fileutil.o
-	libtool --mode=link g++ -o $@ ${LDFLAGS} $^
+all: rpc_test
 
 rpc_test: rpc_test.o rpc.o
-	libtool --mode=link g++ -o $@ ${GTEST_OBJ} ${LDFLAGS} $^
+	g++ -o $@ $^ ${LDFLAGS}
 
 .PHONY: clean
 clean:
-	rm -f *.a *.o rpc_test fileutil
+	rm -f *.a *.o rpc_test
 
 .PHONY: test
 test: rpc_test

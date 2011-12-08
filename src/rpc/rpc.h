@@ -93,12 +93,12 @@ class RPCServer {
 
    private:
     friend class RPCServer;
-    Connection(shared_ptr< map<string,RPCFunc> > funcs, 
+    Connection(shared_ptr< map<string, RPCFunc> > funcs, 
                shared_ptr<TcpSocket> s);
 
     class Internal : public enable_shared_from_this<Internal> {
      public:
-      Internal(shared_ptr< map<string,RPCFunc> > funcs, 
+      Internal(shared_ptr< map<string, RPCFunc> > funcs, 
                shared_ptr<TcpSocket> s);
       virtual ~Internal();
 

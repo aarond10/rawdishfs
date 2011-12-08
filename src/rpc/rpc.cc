@@ -71,7 +71,7 @@ RPCServer::Connection::Connection(
 }
 
 RPCServer::Connection::~Connection() {
-  disconnect();
+  _internal->disconnect();
 }
 
 void RPCServer::Connection::start() {
@@ -93,7 +93,6 @@ RPCServer::Connection::Internal::Internal(
 }
 
 RPCServer::Connection::Internal::~Internal() {
-  disconnect();
 }
 
 void RPCServer::Connection::Internal::start() {
@@ -106,11 +105,9 @@ void RPCServer::Connection::Internal::start() {
 }
 
 void RPCServer::Connection::Internal::disconnect() {
-  _socket->disconnect();
-  // Note: Clearing these callbacks MIGHT dereference and delete ourselves.
-  // Don't run anything after this.
   _socket->setReceiveCallback(NULL);
   _socket->setDisconnectCallback(NULL);
+  _socket->disconnect();
 }
 
 void RPCServer::Connection::Internal::responseCallback(
@@ -147,7 +144,6 @@ void RPCServer::Connection::Internal::onReceive(IOBuffer *buf) {
     uint64_t id = req.get<0>();
     string name = req.get<1>();
     if (_funcs->find(name) != _funcs->end()) {
-      LOG(ERROR) << "Found function " << name << " registered.";
       // Its bad mojo to do processing from the onReceive handler since its
       // blocking further reads so we enqueue the function on a worker
       // thread. Unfortuntely, msgpack hasn't been written with decent support
@@ -183,6 +179,7 @@ RPCClient::RPCClient(shared_ptr<TcpSocket> s)
 }
 
 RPCClient::~RPCClient() {
+  _internal->disconnect();
 }
 
 void RPCClient::start() {
@@ -199,12 +196,9 @@ void RPCClient::setDisconnectCallback(std::tr1::function<void()> callback) {
 
 RPCClient::Internal::Internal(shared_ptr<TcpSocket> s)
     : _socket(s), _reqId(0) {
-  LOG(INFO) << "Internal()";
 }
 
 RPCClient::Internal::~Internal() {
-  LOG(INFO) << "~Internal()";
-  disconnect();
 }
 
 void RPCClient::Internal::start() {
@@ -218,16 +212,15 @@ void RPCClient::Internal::start() {
 }
 
 void RPCClient::Internal::disconnect() {
+  _socket->setReceiveCallback(NULL);
+  _socket->setDisconnectCallback(NULL);
   _socket->disconnect();
   for(map< uint64_t, function<void(IOBuffer*)> >::iterator i = 
       _respCallbacks.begin(); i != _respCallbacks.end(); i++) {
     LOG(WARNING) << "Pending callbacks for RPCClient will be aborted.";
-    // TODO: Abort pending RPC calls.
+    // TODO: Notify aborted RPC calls?.
   }
-  // Note: Clearing these callbacks MIGHT dereference and delete ourselves.
-  // Don't run anything after this.
-  _socket->setReceiveCallback(NULL);
-  _socket->setDisconnectCallback(NULL);
+  _respCallbacks.clear();
 }
 
 void RPCClient::Internal::setDisconnectCallback(std::tr1::function<void()> callback) {
@@ -274,7 +267,6 @@ void RPCClient::Internal::onDisconnect() {
   if (_disconnectCallback) {
     _disconnectCallback();
   }
-  disconnect();
 }
 
 }

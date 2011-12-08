@@ -159,8 +159,6 @@ TEST(RPCServer, UnknownClientConnect) {
   r->setAcceptCallback(std::tr1::bind(&acceptConnectionCallback, std::tr1::placeholders::_1));
   r->start();
 
-  LOG(INFO) << "Connecting...";
-
   shared_ptr<TcpSocket> t(TcpSocket::connect(&em, "127.0.0.1", port));
   Notification n;
   t->setDisconnectCallback(std::tr1::bind(&Notification::signal, &n));
@@ -290,7 +288,6 @@ TEST(RPCClient, Basics) {
   n5.wait();
 
   c.disconnect();
-  n_disconnect.wait();
 }
 
 // TODO: Test what happens when we leave an RPCServer connected to an RPCClient and go out of scope. Client should close then server.

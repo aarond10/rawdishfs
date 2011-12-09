@@ -72,14 +72,12 @@ As part of the incremental scan across local BlockStores, each node tracks block
 
 The intended use-case is for the layer above, which is responsible for coding of data, to periodically call this RPC and for each entry returned, pull down enough other blocks to reconstruct the missing data and reinject it into the network.
 
-### Design Rationale ###
+### BlockStore Design Rationale ###
 
-The rationale behind this design is:
-
-  a. Using fixed size BlockStore's of moderate size allows us to balance data across the network using random hash-based placement.
-  b. Using cuckoo hash inspired evictions deals with imbalance and allows us to make better use of new, empty devices added to the mesh.
-  c. Lookup involves local in-memory scanning of BloomFilters at known locations and occasional network queries. 
-  d. Regardless of the number of BlockStore nodes we have, we have a fairly small search space to check (we have a starting point guaranteed to be close to our data for stable networks).
-  e. The use of a large BloomFilter for GC just has elegant characteristics that suit our use-case. We don't want to keep state. We don't want to pass around lots of data. We can accept delayed deletions, etc..
-  f. The periodic checking for missing blocks can be conveniently done along with GC and provides a clean, single point at which the layer above receives notification of block storage problems.
+  1. Using fixed size BlockStore's of moderate size allows us to balance data across the network using random hash-based placement.
+  2. Using cuckoo hash inspired evictions deals with imbalance and allows us to make better use of new, empty devices added to the mesh.
+  3. Lookup involves local in-memory scanning of BloomFilters at known locations and occasional network queries. 
+  4. Regardless of the number of BlockStore nodes we have, we have a fairly small search space to check (we have a starting point guaranteed to be close to our data for stable networks).
+  5. The use of a large BloomFilter for GC just has elegant characteristics that suit our use-case. We don't want to keep state. We don't want to pass around lots of data. We can accept delayed deletions, etc..
+  6. The periodic checking for missing blocks can be conveniently done along with GC and provides a clean, single point at which the layer above receives notification of block storage problems.
   

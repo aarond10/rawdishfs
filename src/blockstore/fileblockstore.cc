@@ -57,39 +57,59 @@ FileBlockStore::FileBlockStore(const string &path, int blocksize) {
   regenerateBloomFilterAndBlockSet();
 }
 
-bool FileBlockStore::put(const string &key, const uint8_t *data) {
+Future<bool> FileBlockStore::putBlock(const string &key, IOBuffer *data) {
   if(_freeBlocks <= 0) {
+    LOG(ERROR) << "No free blocks.";
+    delete data;
     return false;
   }
-  int fd = open(get_fullpath(_path, key).c_str(), O_CREAT|O_TRUNC|O_WRONLY, 0777);
+  int fd = open(get_fullpath(_path, key).c_str(),
+                O_CREAT|O_TRUNC|O_WRONLY, 0777);
   if (fd == -1) {
+    LOG(ERROR) << "Failed to open file.";
+    delete data;
     return false;
   }
-  if (write(fd, data, _blocksize) != _blocksize) {
+  if (data->size() > _blocksize) {
+    DLOG(ERROR) << "Tried to put a block too big (" << data->size() << ")";
+    delete data;
     return false;
   }
-  fsync(fd);
+  if (write(fd, data->pulldown(data->size()), data->size()) != _blocksize) {
+    delete data;
+    return false;
+  }
+  //fsync(fd); // TODO(aarond10): Add this back if we're paranoid. Without it 
+  // we get a 100x performance boost but no guaranteed write at the end of 
+  // this function.
   close(fd);
   _freeBlocks--;
   _usedBlocks++;
   _bloomfilter.set(key);
   _blockset.insert(key);
+  delete data;
   return true;
 }
 
-bool FileBlockStore::get(const string &key, uint8_t *data) {
+Future<IOBuffer *> FileBlockStore::getBlock(const string &key) {
   int fd = open(get_fullpath(_path, key).c_str(), O_RDONLY);
   if (fd == -1) {
-    return false;
+    return NULL;
   }
-  if (read(fd, data, _blocksize) != _blocksize) {
-    return false;
+  char *data = new char[_blocksize];
+  int r = read(fd, data, _blocksize);
+  if (r <= 0) {
+    LOG(INFO) << "block empty or read failed " << r;
+    delete [] data;
+    return NULL;
   }
   close(fd);
-  return true;
+  IOBuffer *ret = new IOBuffer(data, r);
+  delete [] data;
+  return ret;
 }
 
-bool FileBlockStore::remove(const string &key) {
+Future<bool> FileBlockStore::removeBlock(const string &key) {
   int r = unlink(get_fullpath(_path, key).c_str());
   if (r == 0) {
     //_freeBlocks++;
@@ -138,7 +158,8 @@ void FileBlockStore::regenerateBloomFilterAndBlockSet() {
     if (entry->d_name[0] == '.' || entry->d_type != DT_REG) {
       continue;
     }
-    // TODO(aarond10): Check file length too? 
+    // TODO(aarond10): Check file length too or don't bother 
+    // incurring the cost of the stat() call on each file?
     _bloomfilter.set(entry->d_name);
     _blockset.insert(entry->d_name);
     _usedBlocks++;

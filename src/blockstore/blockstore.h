@@ -26,118 +26,84 @@
  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  THE POSSIBILITY OF SUCH DAMAGE.
 */
-#ifndef _BLOCKSTORE_FILEBLOCKSTORE_H_
-#define _BLOCKSTORE_FILEBLOCKSTORE_H_
+#ifndef _BLOCKSTORE_BLOCKSTORE_H_
+#define _BLOCKSTORE_BLOCKSTORE_H_
 
 #include <stdint.h>
-#include <dirent.h>
 
-#include <list>
 #include <string>
-#include <set>
 #include <tr1/functional>
 
-#include <epoll_threadpool/notification.h>
+#include <epoll_threadpool/future.h>
+#include <epoll_threadpool/iobuffer.h>
 
-#include "blockstore/blockstore.h"
 #include "util/bloomfilter.h"
 
 namespace blockstore {
 
-using std::list;
-using std::set;
 using std::string;
-using std::tr1::bind;
 using std::tr1::function;
+using epoll_threadpool::Future;
+using epoll_threadpool::IOBuffer;
 using util::BloomFilter;
 
-using epoll_threadpool::Notification;
-template<class A>
-void asyncToSyncHelper(A *out, Notification *n, A in) {
-  *out = in;
-  n->signal();
-}
-
 /**
- * Stores raw, fixed size blocks as files on a disk. 
- * Blocks are keyed by ASCII string with no directory structure.
- * Intended to be used as a preliminary test version. More efficient methods
- * to follow.
+ * Interface for BlockStore. Used by both concrete classes and proxy objects
+ * that operate over the network.
  */
-class FileBlockStore : public BlockStore {
+class BlockStore {
  public:
-  FileBlockStore(const string &path, int blocksize=65536);
-  virtual ~FileBlockStore() {
-    if (_dir) {
-      closedir(_dir);
-      _dir = NULL;
-    }
-  }
+  virtual ~BlockStore() { }
 
   /**
    * Attempts to write a block to the block store.
+   * @param key the key for this block
+   * @param data the block of data up to "blocksize" long to write.
+   * @returns true if successful, false if not.
+   * @note Ownership of data is transfered to the function.
    */
-  virtual Future<bool> putBlock(const string &key, IOBuffer *data);
+  virtual Future<bool> putBlock(const string &key, IOBuffer *data) = 0;
 
   /**
    * Attempts to read a block from the block store.
+   * @param key the key for this block
+   * @returns an IOBuffer containing the requested data or
+   *        NULL if data not found.
+   * @note Ownership of data is passed to the callback.
    */
-  virtual Future<IOBuffer *> getBlock(const string &key);
+  virtual Future<IOBuffer *> getBlock(const string &key) = 0;
 
   /**
    * Removes a previously stored block from disk.
+   * @param key the key for this block
+   * @returns true on success, false on failure.
    */
-  virtual Future<bool> removeBlock(const string &key);
+  virtual Future<bool> removeBlock(const string &key) = 0;
 
   /**
-   * Returns the size of a block in bytes.
+   * Gets the size of blocks on this device.
+   * @returns the size of a block in bytes or -1 on error.
    */
-  virtual Future<uint64_t> blockSize() const {
-    return Future<uint64_t>(_blocksize);
-  }
+  virtual Future<uint64_t> blockSize() const = 0;
 
   /**
    * Gets the free block availability of this device.
+   * @returns the num free blocks or -1 on error.
    */
-  virtual Future<uint64_t> numFreeBlocks() const {
-    return Future<uint64_t>(_freeBlocks);
-  }
+  virtual Future<uint64_t> numFreeBlocks() const = 0;
 
   /**
    * Gets the total number of blocks of storage in this device.
+   * @returns total blocks on this device or -1 on error.
    */
-  virtual Future<uint64_t> numTotalBlocks() const {
-    return Future<uint64_t>(_usedBlocks + _freeBlocks);
-  }
+  virtual Future<uint64_t> numTotalBlocks() const = 0;
 
   /**
    * Get a bloomfilter that remote hosts can use to try to determine if
    * we have a block or not before requesting it from us.
+   * @return BloomFilter
    */
-  virtual Future<BloomFilter> bloomfilter() {
-    return Future<BloomFilter>(_bloomfilter);
-  }
-
-  /**
-   * Iterates through block in the store, reading them one at a time.
-   * Returns an empty string when complete and auto-resets.
-   */
-  string next();
-
- private:
-  /**
-   * Reads through all files on disk and regenerates bloom filter
-   * and block set used to speed up queries.
-   */
-  void regenerateBloomFilterAndBlockSet();
- 
-  DIR *_dir;
-  int _blocksize;
-  string _path;
-  util::BloomFilter _bloomfilter;
-  set<string> _blockset;
-  uint32_t _freeBlocks;
-  uint32_t _usedBlocks;
+  virtual Future<BloomFilter> bloomfilter() = 0;
 };
 }
 #endif

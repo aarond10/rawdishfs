@@ -29,27 +29,36 @@
 #ifndef _BLOCKSTORE_BLOCKSTORE_DAEMON_H_
 #define _BLOCKSTORE_BLOCKSTORE_DAEMON_H_
 
+#include "blockstore/fileblockstore.h"
 #include "rpc/rpc.h"
-#include "util/url.h"
+#include "util/bloomfilter.h"
 
-#include <epoll_threadpool/eventmanager.h>
-#include <epoll_threadpool/notification.h>
-#include <epoll_threadpool/tcp.h>
-
+#include <map>
+#include <set>
 #include <string>
 #include <vector>
 
 #include <sys/time.h>
 
+namespace epoll_threadpool {
+  class EventManager;
+  class IOBuffer;
+}
+
 namespace blockstore {
 
 using epoll_threadpool::EventManager;
+using epoll_threadpool::IOBuffer;
+using rpc::RPCServer;
 using rpc::RPCServer;
 using rpc::RPCClient;
+using std::tr1::function;
 using std::tr1::shared_ptr;
+using std::map;
 using std::set;
 using std::string;
 using std::vector;
+using util::BloomFilter;
 
 /**
  * Represents a single node in a full-mesh network of BlockStore nodes. 
@@ -61,6 +70,22 @@ class BlockStoreNode {
  public:
   BlockStoreNode(EventManager *em);
   virtual ~BlockStoreNode();
+
+  /**
+   * Kicks off the daemon.
+   */
+  void start();
+
+  /**
+   * Stops the daemon.
+   */
+  void stop();
+
+  /**
+   * Returns the TCP port that the node listens on for peering with
+   * fellow nodes.
+   */
+  uint16_t port() const { return _port; }
 
   /**
    * Attempts to add a new peer at the given ip:port location to the current
@@ -85,16 +110,6 @@ class BlockStoreNode {
   void removeBlockStore(uint64_t bsid);
 
   /**
-   * Kicks off the daemon.
-   */
-  void start();
-
-  /**
-   * Stops the daemon.
-   */
-  void stop();
-
-  /**
    * Returns the approximate number of free bytes in the whole network. This
    * is equivalent to the sum of all the known garbage collectable blocks
    * in all BlockStore's in the network plus all unallocated free space.
@@ -108,19 +123,19 @@ class BlockStoreNode {
    * @param data IOBuffer must be equal or less than the block size of the 
    *             network. Ownership of this parameter is passed to the 
    *             function.
-   * @return bool true on success, false on error. In the case of error,
-   * ownership of data remains with the caller.
+   * @returns true on success, false on error. 
+   * @note This function takes ownership of data.
    */
-  bool setBlock(const string &name, IOBuffer *data);
+  Future<bool> putBlock(const string &name, IOBuffer *data);
 
   /**
    * Fetches and returns a block of data from the network.
    * The fetch may take some time so this function works asynchronously,
    * returning the data via callback when available. In the case of error,
-   * NULL will be passed to the callback. The callback inherits ownership
-   * of the IOBuffer.
+   * NULL will be returned. If an IOBuffer is returned, ownership is passed
+   * to the caller.
    */
-  void getBlock(const string &name, function<void(IOBuffer *)> callback);
+  Future<IOBuffer *> getBlock(const string &name);
 
   /**
    * Sets a garbage collection bloom filter.
@@ -135,19 +150,68 @@ class BlockStoreNode {
    * which it can't find the next in sequence. The names of these nodes are
    * stored in a list. This function returns the list and then clears it.
    */
-  vector<string name> getMissingBlocks() const;
+  vector<string> getMissingBlocks() const;
 
  private:
+  /**
+   * Manages communication with a node's peer.
+   */
+  class Peer {
+   public:
+    Peer(const string &ip, uint16_t port);
+    virtual ~Peer();
+
+    /**
+     * Tells a peer roughly how many free bytes we think we have on local
+     * BlockStores.
+     */
+    //void sendBSFreeSpace(uint64_t bytes);
+
+    /**
+     * Sends a local BlockStore BloomFilter to the peer. 
+     * This is not *strictly* required but without doing this, file access
+     * will be very slow and network usage extremely high for each block.
+     * Note that the only case in which we get requests for blocks that are
+     * NOT in a provided BloomFilter are when the requested block matches NO 
+     * BloomFilters. This will happen for very new blocks and missing blocks.
+     */
+    void sendBSBloomFilter(uint64_t bsid, const BloomFilter& bloomfilter);
+
+    /**
+     * Asks a peer explicitly to store a block.
+     * When this is called we will already have an appropriate BlockStore in
+     * mind but the peer itself will decide the most appropriate location for
+     * us.
+     */
+    Future<bool> setBlock(const string& name, IOBuffer *data);
+
+    /**
+     * Explicitly requests a block from a given peer. This will never recurse.
+     */
+    Future<IOBuffer *> getBlock(const string& name);
+
+    /**
+     * Get free space for a given BlockStore.
+     */
+
+   private:
+    shared_ptr<RPCClient> _client;
+  };
+
+  BlockStore *_findBestLocation(size_t hash);
+  BlockStore *_findNextBestLocation(size_t hash);
+
   EventManager *_em;
+  uint16_t _port;
   shared_ptr<RPCServer> _rpc_server;
-  set< shared_ptr<RPCServer::Connection> > _connections;
-  set<FileBlockStore *> _blockstores;
+  set< shared_ptr<Peer> > _peers;
+  map< uint64_t, shared_ptr<FileBlockStore> > _blockstores;
 
   /**
    * Called periodically to incrementally check the state of stored blocks
    * and perform garbage collection.
    */
-  bool onTimer();
+  void onTimer();
 
 };
 

@@ -31,36 +31,49 @@
 
 #include <gtest/gtest.h>
 
+#include <epoll_threadpool/iobuffer.h>
+
+#include <set>
+#include <string>
+
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+
+using epoll_threadpool::IOBuffer;
+using std::set;
+using std::string;
 
 TEST(FileBlockStoreTest, BasicTests) {
 
   mkdir("/tmp/bs1", 0777);
 
-  uint8_t buf1[16];
+  char buf1[16];
+  IOBuffer *buf;
   memset(buf1, 0, sizeof(buf1));
   blockstore::FileBlockStore bs1("/tmp/bs1", 16);
 
-  EXPECT_FALSE(bs1.get("apple", buf1));
+  EXPECT_TRUE(bs1.getBlock("apple").get() == NULL);
   strcpy((char *)buf1, "apple");
-  EXPECT_TRUE(bs1.put("apple", buf1));
-  sync();
-  EXPECT_TRUE(bs1.get("apple", buf1));
+  EXPECT_TRUE(bs1.putBlock("apple", new IOBuffer(buf1, 16)));
+  //sync();
+  buf = bs1.getBlock("apple");
+  EXPECT_TRUE(buf != NULL);
 
   uint32_t blocks_a = bs1.numTotalBlocks();
   uint32_t blocks_a2 = bs1.numFreeBlocks();
 
-  EXPECT_FALSE(bs1.get("banana", buf1));
+  EXPECT_TRUE(bs1.getBlock("banana").get() == NULL);
   strcpy((char *)buf1, "banana");
-  EXPECT_TRUE(bs1.put("banana", buf1));
-  sync();
-  EXPECT_TRUE(bs1.get("banana", buf1));
-  EXPECT_TRUE(strcmp("banana",(char *)buf1)==0);
+  EXPECT_TRUE(bs1.putBlock("banana", new IOBuffer(buf1, 16)));
+  //sync();
+  buf = bs1.getBlock("banana");
+  EXPECT_TRUE(buf != NULL);
+  EXPECT_TRUE(strcmp("banana",(char *)buf->pulldown(buf->size()))==0);
 
-  EXPECT_TRUE(bs1.get("apple", buf1));
-  EXPECT_TRUE(strcmp("apple",(char *)buf1)==0);
+  buf = bs1.getBlock("apple");
+  EXPECT_TRUE(buf != NULL);
+  EXPECT_TRUE(strcmp("apple",(char *)buf->pulldown(buf->size()))==0);
 
   uint32_t blocks_b = bs1.numTotalBlocks();
   uint32_t blocks_b2 = bs1.numFreeBlocks();
@@ -77,14 +90,14 @@ TEST(FileBlockStoreTest, BasicTests) {
   }
   EXPECT_EQ(0, expected_blocks.size());
  
-  EXPECT_TRUE(bs1.bloomfilter().mayContain("banana"));
-  EXPECT_FALSE(bs1.bloomfilter().mayContain("carrot"));
+  EXPECT_TRUE(bs1.bloomfilter().get().mayContain("banana"));
+  EXPECT_FALSE(bs1.bloomfilter().get().mayContain("carrot"));
 
-  EXPECT_TRUE(bs1.remove("apple"));
-  EXPECT_TRUE(bs1.remove("banana"));
+  EXPECT_TRUE(bs1.removeBlock("apple"));
+  EXPECT_TRUE(bs1.removeBlock("banana"));
 
   EXPECT_EQ(string(""), bs1.next());
 
-  EXPECT_FALSE(bs1.bloomfilter().mayContain("apple"));
-  EXPECT_FALSE(bs1.bloomfilter().mayContain("banana"));
+  EXPECT_FALSE(bs1.bloomfilter().get().mayContain("apple"));
+  EXPECT_FALSE(bs1.bloomfilter().get().mayContain("banana"));
 }

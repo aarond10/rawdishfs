@@ -66,6 +66,20 @@ BloomFilter::BloomFilter() {
   reset();
 }
 
+BloomFilter::BloomFilter(const BloomFilter& other) {
+  _hash = NULL;
+  *this = other;
+}
+
+BloomFilter& BloomFilter::operator=(const BloomFilter& other) {
+  delete [] _hash;
+  _seed = other._seed;
+  _size = other._size;
+  _hash = new uint8_t[_size];
+  memcpy(_hash, other._hash, (_size+7)/8);
+  return *this;
+}
+
 BloomFilter::~BloomFilter() {
   if (_hash) {
     delete [] _hash;

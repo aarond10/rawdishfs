@@ -42,6 +42,8 @@ using std::vector;
 class BloomFilter {
  public:
   BloomFilter();
+  BloomFilter(const BloomFilter& other);
+  BloomFilter& operator=(const BloomFilter& other);
   virtual ~BloomFilter();
 
   /**

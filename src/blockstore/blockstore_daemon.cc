@@ -29,11 +29,12 @@
 
 #include "blockstore.h"
 #include "blockstore_daemon.h"
+#include "remoteblockstore.h"
 #include "rpc/rpc.h"
 #include "util/url.h"
 
-#include <epoll_threadpool/barrier.h>
 #include <epoll_threadpool/eventmanager.h>
+#include <epoll_threadpool/future.h>
 #include <epoll_threadpool/iobuffer.h>
 #include <epoll_threadpool/notification.h>
 #include <epoll_threadpool/tcp.h>
@@ -45,7 +46,8 @@
 
 namespace blockstore {
 
-using epoll_threadpool::Barrier;
+using epoll_threadpool::Future;
+using epoll_threadpool::FutureBarrier;
 using epoll_threadpool::EventManager;
 using epoll_threadpool::IOBuffer;
 using epoll_threadpool::Notification;
@@ -64,14 +66,6 @@ namespace {
 const double TIMER_INTERVAL = 1.0;
  
 /**
- * Helper that stores a uint64 and then runs a callback
- */
-void uint64Helper(uint64_t* result, function<void()> callback, uint64_t value) {
-  *result = value;
-  callback();
-}
-
-/**
  * Helper function called when storing blocks. When both primary and 
  * secondary locations for blocks have been probed for free space. This 
  * function chooses the BlockStore with the most free space and stores 
@@ -80,15 +74,15 @@ void uint64Helper(uint64_t* result, function<void()> callback, uint64_t value) {
 void putBlockHelper(
     const string &name, IOBuffer *data,
     BlockStore *bsA, BlockStore *bsB, 
-    uint64_t *freeA, uint64_t *freeB,
+    Future<uint64_t> fA, Future<uint64_t> fB, 
+    FutureBarrier *barrier,
     Future<bool> ret) {
-  if (*freeA < *freeB) {
+  if (fA.get() < fB.get()) {
     ret.set(bsA->putBlock(name, data));
   } else {
     ret.set(bsB->putBlock(name, data));
   }
-  delete freeA;
-  delete freeB;
+  delete barrier;
 }
 }
 
@@ -145,21 +139,18 @@ BlockStore *BlockStoreNode::_findNextBestLocation(size_t hash) {
 
 Future<bool> BlockStoreNode::putBlock(const string &name, IOBuffer *data) {
 
-  uint64_t* freeA = new uint64_t();
-  uint64_t* freeB = new uint64_t();
   Future<bool> ret;
-  BlockStore* bsA = 
-      _findBestLocation(std::tr1::hash<string>()(name));
-  BlockStore* bsB = 
-      _findNextBestLocation(std::tr1::hash<string>()(name));
-  Barrier* barrier = new Barrier(2, 
-      bind(&putBlockHelper, name, data, bsA, bsB, freeA, freeB, ret));
-  bsA->numFreeBlocks()
-      .addCallback(bind(&uint64Helper, freeA, barrier->callback(),
-                   std::tr1::placeholders::_1));
-  bsB->numFreeBlocks()
-      .addCallback(bind(&uint64Helper, freeB, barrier->callback(),
-                   std::tr1::placeholders::_1));
+  BlockStore* bsA = _findBestLocation(std::tr1::hash<string>()(name));
+  BlockStore* bsB = _findNextBestLocation(std::tr1::hash<string>()(name));
+  FutureBarrier::FutureSet fs;
+
+  Future<uint64_t> fA = bsA->numFreeBlocks();
+  Future<uint64_t> fB = bsB->numFreeBlocks();
+  fs.push_back(fA);
+  fs.push_back(fB);
+  FutureBarrier* barrier = new FutureBarrier(fs);
+  barrier->addCallback(bind(&putBlockHelper, name, data, 
+                            bsA, bsB, fA, fB, barrier, ret));
   return ret;
 }
 
@@ -179,6 +170,7 @@ vector<string> BlockStoreNode::getMissingBlocks() const {
 }
 
 void BlockStoreNode::onTimer() {
+  LOG(INFO) << "Tick";
   if(_peers.size() && _blockstores.size()) {
 /*
     // First search for timed out peers and remove them from our connection list.

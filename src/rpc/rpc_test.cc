@@ -217,7 +217,7 @@ TEST(RPCClient, ConstructionConnectBadCall) {
   RPCClient c(TcpSocket::connect(&em, "127.0.0.1", port));
   c.setDisconnectCallback(std::tr1::bind(&Notification::signal, &n));
   c.start();
-  c.call<string>("missingFunc", std::tr1::bind(&missingFuncCallback, std::tr1::placeholders::_1));
+  c.call<string>("missingFunc").addCallback(std::tr1::bind(&missingFuncCallback, std::tr1::placeholders::_1));
   n.wait();
 
   c.disconnect();
@@ -256,7 +256,7 @@ TEST(RPCClient, Basics) {
   c.start();
   // Make sure trivial call works on string data types.
   Notification na,nb,nc;
-  c.call<string,string>("toUpper","string", std::tr1::bind(&checkValue<string>, string("STRING"), std::tr1::placeholders::_1, &na));
+  c.call<string,string>("toUpper","string").addCallback(std::tr1::bind(&checkValue<string>, string("STRING"), std::tr1::placeholders::_1, &na));
 
   vector<int> vec;
   vec.push_back(1);
@@ -264,18 +264,18 @@ TEST(RPCClient, Basics) {
   vec.push_back(3);
   vec.push_back(4);
   vec.push_back(5);
-  c.call< int, vector<int> >("complexArgs", vec, std::tr1::bind(&checkValue<int>, 15, std::tr1::placeholders::_1, &nb));
+  c.call< int, vector<int> >("complexArgs", vec).addCallback(std::tr1::bind(&checkValue<int>, 15, std::tr1::placeholders::_1, &nb));
 
-  c.call< vector<int> >("complexRet", std::tr1::bind(&checkComplexRet, std::tr1::placeholders::_1, &nc));
+  c.call< vector<int> >("complexRet").addCallback(std::tr1::bind(&checkComplexRet, std::tr1::placeholders::_1, &nc));
 
   // These will get serialized and sent sequentially to the server. There is no guarantee about order of execution on server side though.
   Notification n0,n1,n2,n3,n4,n5;
-  c.call<int>("addArgs0", std::tr1::bind(&checkValue<int>, 11, std::tr1::placeholders::_1, &n0));
-  c.call<int, int>("addArgs1", 1, std::tr1::bind(&checkValue<int>, 2, std::tr1::placeholders::_1, &n1));
-  c.call<int, int, int>("addArgs2", 1, 2, std::tr1::bind(&checkValue<int>, 3, std::tr1::placeholders::_1, &n2));
-  c.call<int, int, int, int>("addArgs3", 1, 2, 3, std::tr1::bind(&checkValue<int>, 6, std::tr1::placeholders::_1, &n3));
-  c.call<int, int, int, int, int>("addArgs4", 1, 2, 3, 4, std::tr1::bind(&checkValue<int>, 10, std::tr1::placeholders::_1, &n4));
-  c.call<int, int, int, int, int, int>("addArgs5", 1, 2, 3, 4, 5, std::tr1::bind(&checkValue<int>, 15, std::tr1::placeholders::_1, &n5));
+  c.call<int>("addArgs0").addCallback(std::tr1::bind(&checkValue<int>, 11, std::tr1::placeholders::_1, &n0));
+  c.call<int, int>("addArgs1", 1).addCallback(std::tr1::bind(&checkValue<int>, 2, std::tr1::placeholders::_1, &n1));
+  c.call<int, int, int>("addArgs2", 1, 2).addCallback(std::tr1::bind(&checkValue<int>, 3, std::tr1::placeholders::_1, &n2));
+  c.call<int, int, int, int>("addArgs3", 1, 2, 3).addCallback(std::tr1::bind(&checkValue<int>, 6, std::tr1::placeholders::_1, &n3));
+  c.call<int, int, int, int, int>("addArgs4", 1, 2, 3, 4).addCallback(std::tr1::bind(&checkValue<int>, 10, std::tr1::placeholders::_1, &n4));
+  c.call<int, int, int, int, int, int>("addArgs5", 1, 2, 3, 4, 5).addCallback(std::tr1::bind(&checkValue<int>, 15, std::tr1::placeholders::_1, &n5));
 
   na.wait();
   nb.wait();

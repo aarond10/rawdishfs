@@ -75,7 +75,7 @@ void checkValue(int expected, CountingNotification *n, int actual) {
 
 void StartRPCs(shared_ptr<RPCClient> client, CountingNotification *n, int numCalls) {
   for (int i = 0; i < numCalls; ++i) {
-    client->call<int, int, int>("addArgs2", i, i+1,
+    client->call<int, int, int>("addArgs2", i, i+1).addCallback(
         std::tr1::bind(&checkValue, 2*i+1, n, std::tr1::placeholders::_1));
   }
 }

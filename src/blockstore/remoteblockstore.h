@@ -49,37 +49,96 @@ using epoll_threadpool::Future;
 using epoll_threadpool::IOBuffer;
 using util::BloomFilter;
 
+using namespace std::tr1::placeholders;
+
+namespace {
 /**
- * Registers a block store with an RPC server instance.
+ * Helper function that maps from vector<uint8_t> to IOBuffer*.
  */
-void RegisterBlockStoreRPCs(shared_ptr<RPCServer> server,
-                            FileBlockStore *blockstore) {
-  server->registerFunction<bool, const string &, IOBuffer *>(
-      "putBlock", bind(&FileBlockStore::putBlock, blockstore, 
-                       std::tr1::placeholders::_1, std::tr1::placeholders::_2));
-  server->registerFunction<IOBuffer *, const string & >(
-      "getBlock", bind(&FileBlockStore::getBlock, blockstore, 
-                       std::tr1::placeholders::_1));
-  server->registerFunction<bool, const string & >(
-      "removeBlock", bind(&FileBlockStore::removeBlock, blockstore, 
-                       std::tr1::placeholders::_1));
-  server->registerFunction<uint64_t>(
-      "blockSize", bind(&FileBlockStore::blockSize, blockstore));
-  server->registerFunction<uint64_t>(
-      "numFreeBlocks", bind(&FileBlockStore::numFreeBlocks, blockstore));
-  server->registerFunction<uint64_t>(
-      "numTotalBlocks", bind(&FileBlockStore::numTotalBlocks, blockstore));
-  server->registerFunction<BloomFilter>(
-      "bloomfilter", bind(&FileBlockStore::bloomfilter, blockstore));
+Future<bool> FileBlockStorePutBlockHelper(
+    FileBlockStore *bs, string name, vector<uint8_t> data) {
+  IOBuffer* iobuffer = new IOBuffer((const char *)&data[0], data.size());
+  return (*bs).putBlock(name, iobuffer);
+}
+
+void FileBlockStoreGetBlockHelperCallback(
+    Future< vector<uint8_t> > dst, Future<IOBuffer*> src) {
+  vector<uint8_t> ret;
+  ret.resize(src.get()->size());
+  memcpy(&ret[0], src.get()->pulldown(src.get()->size()), src.get()->size());
+  delete src.get();
+  dst.set(ret);
 }
 
 /**
- * Remote BlockStore Client
+ * Helper function that maps from vector<uint8_t> to IOBuffer*.
+ */
+Future< vector<uint8_t> > FileBlockStoreGetBlockHelper(
+    FileBlockStore *bs, string name) {
+  Future< vector<uint8_t> > dst;
+  Future<IOBuffer*> src = (*bs).getBlock(name);
+  src.addCallback(bind(&FileBlockStoreGetBlockHelperCallback, dst, src));
+  return dst;
+}
+
+/**
+ * Helper function that maps from vector<uint8_t> to BloomFilter
+ */
+Future< vector<uint8_t> > FileBlockStoreBloomFilterHelper(FileBlockStore *bs) {
+  return Future< vector<uint8_t> >((*bs).bloomfilter().get().serialize());
+}
+
+/**
+ * Builds a BlockStore unique string so multiple BlockStore instances can be
+ * run over a single RPC channel.
+ */
+string MakeString(const char *str, uint64_t bsid) {
+  char buf[128];
+  snprintf(buf, 127, "%s%lu", str, bsid);
+  return buf;
+}
+} // end anonymous namespace
+
+/**
+ * Registers a BlockStore with an RPC server instance.
+ * This is intended to be used in conjunction with RemoteBlockStore on the
+ * client side. It creates per-blockstore unique RPC names to allow
+ * multiple BlockStore instances to be shared on a single server endpoint.
+ */
+void RegisterBlockStoreRPCs(shared_ptr<RPCServer> server,
+                            FileBlockStore *blockstore, uint64_t bsid) {
+  server->registerFunction<bool, string, vector<uint8_t> >(
+      MakeString("putBlock", bsid), 
+      bind(&FileBlockStorePutBlockHelper, blockstore, _1, _2));
+  server->registerFunction<vector<uint8_t>, string>(
+      MakeString("getBlock", bsid),
+      bind(&FileBlockStoreGetBlockHelper, blockstore, _1));
+  server->registerFunction<bool, string>(
+      MakeString("removeBlock", bsid),
+      bind(&FileBlockStore::removeBlock, blockstore, _1));
+  server->registerFunction<uint64_t>(
+      MakeString("blockSize", bsid),
+      bind(&FileBlockStore::blockSize, blockstore));
+  server->registerFunction<uint64_t>(
+      MakeString("numFreeBlocks", bsid),
+      bind(&FileBlockStore::numFreeBlocks, blockstore));
+  server->registerFunction<uint64_t>(
+      MakeString("numTotalBlocks", bsid),
+      bind(&FileBlockStore::numTotalBlocks, blockstore));
+  server->registerFunction< vector<uint8_t> >(
+      MakeString("bloomfilter", bsid),
+      bind(&FileBlockStoreBloomFilterHelper, blockstore));
+}
+
+/**
+ * An implementation of the BlockStore interface that operates via RPC on
+ * a remote instance. Each RemoteBlockStore takes a bsid, allowing multiple
+ * BlockStore's to be hosted on a single RPC channel.
  */
 class RemoteBlockStore : public BlockStore {
  public:
-  RemoteBlockStore(shared_ptr<RPCClient> client)
-      : _client(client) { }
+  RemoteBlockStore(shared_ptr<RPCClient> client, uint64_t bsid)
+      : _bsid(bsid), _client(client) { }
   virtual ~RemoteBlockStore() { }
 
   /**
@@ -90,7 +149,12 @@ class RemoteBlockStore : public BlockStore {
    * @note Ownership of data is transfered to the function.
    */
   virtual Future<bool> putBlock(const string &key, IOBuffer *data) {
-    return _client->call("putBlock", key, data);
+    vector<uint8_t> datavec;
+    datavec.resize(data->size());
+    memcpy(&datavec[0], data->pulldown(data->size()), data->size());
+    delete data;
+    return _client->call<bool, const string &, vector<uint8_t> >(
+        MakeString("putBlock", _bsid), key, datavec);
   }
 
   /**
@@ -101,7 +165,12 @@ class RemoteBlockStore : public BlockStore {
    * @note Ownership of data is passed to the callback.
    */
   virtual Future<IOBuffer *> getBlock(const string &key) {
-    return _client->call("getBlock", key);
+    Future<IOBuffer *> ret;
+    Future< vector<uint8_t> > proxy_ret = 
+        _client->call<vector<uint8_t>, const string &>(
+            MakeString("getBlock", _bsid), key);
+    proxy_ret.addCallback(bind(&getBlockHelper, proxy_ret, ret));
+    return ret;
   }
 
   /**
@@ -110,7 +179,8 @@ class RemoteBlockStore : public BlockStore {
    * @returns true on success, false on failure.
    */
   virtual Future<bool> removeBlock(const string &key) {
-    return _client->call("removeBlock", key);
+    return _client->call<bool, const string &>(
+        MakeString("removeBlock", _bsid), key);
   }
 
   /**
@@ -118,7 +188,7 @@ class RemoteBlockStore : public BlockStore {
    * @returns the size of a block in bytes or -1 on error.
    */
   virtual Future<uint64_t> blockSize() const {
-    return _client->call("blockSize");
+    return _client->call<uint64_t>(MakeString("blockSize", _bsid));
   }
 
   /**
@@ -126,7 +196,7 @@ class RemoteBlockStore : public BlockStore {
    * @returns the num free blocks or -1 on error.
    */
   virtual Future<uint64_t> numFreeBlocks() const {
-    return _client->call("numFreeBlocks");
+    return _client->call<uint64_t>(MakeString("numFreeBlocks", _bsid));
   }
 
   /**
@@ -134,7 +204,7 @@ class RemoteBlockStore : public BlockStore {
    * @returns total blocks on this device or -1 on error.
    */
   virtual Future<uint64_t> numTotalBlocks() const {
-    return _client->call("numTotalBlocks");
+    return _client->call<uint64_t>(MakeString("numTotalBlocks", _bsid));
   }
 
   /**
@@ -143,11 +213,46 @@ class RemoteBlockStore : public BlockStore {
    * @return BloomFilter
    */
   virtual Future<BloomFilter> bloomfilter() {
-    return _client->call("bloomfilter");
+    Future<BloomFilter> ret;
+    Future< vector<uint8_t> > proxy_ret = 
+        _client->call< vector<uint8_t> >(MakeString("bloomfilter", _bsid));
+    proxy_ret.addCallback(bind(&bloomfilterHelper, proxy_ret, ret));
+    return ret;
   }
 
  private:
+  uint64_t _bsid;
   shared_ptr<RPCClient> _client;
+
+  /**
+   * Helper function to map from vector to IOBuffer *
+   */
+  static vector<uint8_t> getBlockHelper(
+      Future< vector<uint8_t> > proxy_ret, Future<IOBuffer *> ret) {
+    if (proxy_ret.get().size() == 0) {
+      ret.set(NULL);
+    } else {
+      IOBuffer *buf = new IOBuffer((const char *)&proxy_ret.get()[0], 
+                                   proxy_ret.get().size());
+      ret.set(buf);
+    }
+  }
+
+  /**
+   * Helper function to map from vector to BloomFilter
+   */
+  static vector<uint8_t> bloomfilterHelper(
+      Future< vector<uint8_t> > proxy_ret, Future<BloomFilter> ret) {
+    if (proxy_ret.get().size() == 0) {
+      LOG(ERROR) << "Invalid BloomFilter response.";
+      ret.set(BloomFilter());
+    } else {
+      BloomFilter bf;
+      bf.deserialize(proxy_ret.get());
+      ret.set(bf);
+    }
+  }
+
 };
 }
 #endif

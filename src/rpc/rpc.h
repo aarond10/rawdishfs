@@ -61,6 +61,37 @@ using std::tr1::weak_ptr;
 using std::vector;
 
 using namespace std::tr1;
+using namespace std::tr1::placeholders;
+
+namespace {
+  // Helper functions used to convert A(...) functions into Future<A>(...).
+  template<class A> 
+  Future<A> immediateToFuture(function<A()> func) {
+    return func(); 
+  }
+  template<class A, class B> 
+  Future<A> immediateToFuture(function<A(B)> func, B b) {
+    return func(b);
+  }
+  template<class A, class B, class C> 
+  Future<A> immediateToFuture(function<A(B,C)> func, B b, C c) {
+    return func(b, c);
+  }
+  template<class A, class B, class C, class D> 
+  Future<A> immediateToFuture(function<A(B, C, D)> func, B b, C c, D d) {
+    return func(b, c, d);
+  }
+  template<class A, class B, class C, class D, class E> 
+  Future<A> immediateToFuture(function<A(B, C, D, E)> func, 
+                              B b, C c, D d, E e) {
+    return func(b, c, d, e);
+  }
+  template<class A, class B, class C, class D, class E, class F> 
+  Future<A> immediateToFuture(function<A(B, C, D, E, F)> func, 
+                              B b, C c, D d, E e, F f) {
+    return func(b, c, d, e, f);
+  }
+} // end anonymous namespace
 
 /**
  * Runs an RPC server on a given TcpListenSocket
@@ -147,36 +178,53 @@ class RPCServer {
 
   /**
    * Registers an RPC function that returns its result immediately.
-   */
+   * This is done by wrapping the function so it returns a Future<>.
+   * /
   template<class A>
-  void registerFunction(const char* name, function<A()> f);
+  void registerFunction(const char* name, function<A()> f) {
+    registerFunction<A>(name, bind(&immediateToFuture<A>, f));
+  }
   template<class A, class B>
-  void registerFunction(const char* name, function<A(B)> f);
+  void registerFunction(const char* name, function<A(B)> f) {
+    registerFunction<A, B>(name, 
+        bind(&immediateToFuture<A, B>, f, _1));
+  }
   template<class A, class B, class C>
-  void registerFunction(const char* name, function<A(B,C)> f);
+  void registerFunction(const char* name, function<A(B,C)> f) {
+    registerFunction<A, B, C>(name, 
+        bind(&immediateToFuture<A, B, C>, f, _1, _2));
+  }
   template<class A, class B, class C, class D>
-  void registerFunction(const char* name, function<A(B,C,D)> f);
+  void registerFunction(const char* name, function<A(B,C,D)> f) {
+    registerFunction<A, B, C, D>(name, 
+        bind(&immediateToFuture<A, B, C, D>, f, _1, _2, _3));
+  }
   template<class A, class B, class C, class D, class E>
-  void registerFunction(const char* name, function<A(B,C,D,E)> f);
+  void registerFunction(const char* name, function<A(B,C,D,E)> f) {
+    registerFunction<A, B, C, D, E>(name, 
+        bind(&immediateToFuture<A, B, C, D, E>, f, _1, _2, _3, _4));
+  }
   template<class A, class B, class C, class D, class E, class F>
-  void registerFunction(const char* name, function<A(B,C,D,E,F)> f);
+  void registerFunction(const char* name, function<A(B,C,D,E,F)> f) {
+    registerFunction<A, B, C, D, E, F>(name, 
+        bind(&immediateToFuture<A, B, C, D, E, F>, f, _1, _2, _3, _4, _5));
+  }*/
 
   /**
-   * Registers a function that returns its result asynchronously via a 
-   * callback. The callback function provided must be called exactly once.
+   * Registers an RPC function that returns its result via a Future<>
    */
   template<class A>
-  void registerFunctionAsync(const char* name, function<void(function<void(A)>)> f);
+  void registerFunction(const string name, function<Future<A>()> f);
   template<class A, class B>
-  void registerFunctionAsync(const char* name, function<void(B, function<void(A)>)> f);
+  void registerFunction(const string name, function<Future<A>(B)> f);
   template<class A, class B, class C>
-  void registerFunctionAsync(const char* name, function<void(B, C, function<void(A)>)> f);
+  void registerFunction(const string name, function<Future<A>(B,C)> f);
   template<class A, class B, class C, class D>
-  void registerFunctionAsync(const char* name, function<void(B, C, D, function<void(A)>)> f);
+  void registerFunction(const string name, function<Future<A>(B,C,D)> f);
   template<class A, class B, class C, class D, class E>
-  void registerFunctionAsync(const char* name, function<void(B, C, D, E, function<void(A)>)> f);
+  void registerFunction(const string name, function<Future<A>(B,C,D,E)> f);
   template<class A, class B, class C, class D, class E, class F>
-  void registerFunctionAsync(const char* name, function<void(B, C, D, E, F, function<void(A)>)> f);
+  void registerFunction(const string name, function<Future<A>(B,C,D,E,F)> f);
 
  private:
   RPCServer(shared_ptr<TcpListenSocket> s);
@@ -189,179 +237,120 @@ class RPCServer {
 };
 
 namespace {
-  // Helper functions used to convert A(...) functions into void(..., function<void(A)>).
+  // Helper callback used to serialize an instance of A and call func().
   template<class A> 
-  void immediateToCallback(function<A()> func, function<void(A)> cb) { 
-    cb(func()); 
-  }
-  template<class A, class B> 
-  void immediateToCallback(function<A(B)> func, B b, function<void(A)> cb) { 
-    cb(func(b)); 
-  }
-  template<class A, class B, class C> 
-  void immediateToCallback(function<A(B,C)> func, B b, C c, function<void(A)> cb) { 
-    cb(func(b, c)); 
-  }
-  template<class A, class B, class C, class D> 
-  void immediateToCallback(function<A(B, C, D)> func, B b, C c, D d, function<void(A)> cb) { 
-    cb(func(b, c, d)); 
-  }
-  template<class A, class B, class C, class D, class E> 
-  void immediateToCallback(function<A(B, C, D, E)> func, B b, C c, D d, E e, function<void(A)> cb) { 
-    cb(func(b, c, d, e)); 
-  }
-  template<class A, class B, class C, class D, class E, class F> 
-  void immediateToCallback(function<A(B, C, D, E, F)> func, B b, C c, D d, E e, F f, function<void(A)> cb) { 
-    cb(func(b, c, d, e, f)); 
-  }
-
-  // Helper function used to convert a void(A) callback into a void(const msgpack::object&) callback.
-  template<class A> void msgpackRet(function<void(const msgpack::object&)> func, A ret) {
+  void msgpackRet(function<void(const msgpack::object&)> func, Future<A> ret) {
     shared_ptr<msgpack::zone> z(new msgpack::zone());
     msgpack::object::with_zone obj(z.get());
-    obj << ret;
-    //msgpack::object obj(ret);
+    obj << ret.get();
     func(obj);
   }
 
   // Helper functions used to deserialize function arguments and execute functions.
-  template<class A> static void msgpackArgs(function<void(function<void(A)>)> f, 
+  template<class A> 
+  void msgpackArgs(function<Future<A>()> f,
       IOBuffer* argsBuf, function<void(const msgpack::object&)> cb) { 
     DCHECK_EQ(0, argsBuf->size());
-    f(bind(&msgpackRet<A>, cb, placeholders::_1)); 
+    Future<A> ret = f();
+    ret.addCallback(bind(&msgpackRet<A>, cb, ret)); 
     delete argsBuf;
   }
-  template<class A, class B> static void msgpackArgs(function<void(B, function<void(A)>)> f, 
+  template<class A, class B> 
+  void msgpackArgs(function<Future<A>(B)> f, 
       IOBuffer* argsBuf, function<void(const msgpack::object&)> cb) { 
     msgpack::unpacked msg;
     msgpack::unpack(&msg, argsBuf->pulldown(argsBuf->size()), argsBuf->size());
     msgpack::type::tuple<B> tup;
     msg.get().convert(&tup);
-    f(tup.template get<0>(), bind(&msgpackRet<A>, cb, placeholders::_1));
+    Future<A> ret = f(tup.template get<0>());
+    ret.addCallback(bind(&msgpackRet<A>, cb, ret)); 
     delete argsBuf;
   }
-  template<class A, class B, class C> static void msgpackArgs(function<void(B, C, function<void(A)>)> f, 
+  template<class A, class B, class C>
+  void msgpackArgs(function<Future<A>(B, C)> f, 
       IOBuffer* argsBuf, function<void(const msgpack::object&)> cb) { 
     msgpack::unpacked msg;
     msgpack::unpack(&msg, argsBuf->pulldown(argsBuf->size()), argsBuf->size());
     msgpack::type::tuple<B, C> tup;
     msg.get().convert(&tup);
-    f(tup.template get<0>(), 
-        tup.template get<1>(), 
-        bind(&msgpackRet<A>, cb, placeholders::_1));
+    Future<A> ret = f(tup.template get<0>(), tup.template get<1>());
+    ret.addCallback(bind(&msgpackRet<A>, cb, ret)); 
     delete argsBuf;
   }
-  template<class A, class B, class C, class D> static void msgpackArgs(function<void(B, C, D, function<void(A)>)> f, 
+  template<class A, class B, class C, class D> 
+  void msgpackArgs(function<Future<A>(B, C, D)> f, 
       IOBuffer* argsBuf, function<void(const msgpack::object&)> cb) { 
     msgpack::unpacked msg;
     msgpack::unpack(&msg, argsBuf->pulldown(argsBuf->size()), argsBuf->size());
     msgpack::type::tuple<B, C, D> tup;
     msg.get().convert(&tup);
-    f(tup.template get<0>(), 
-        tup.template get<1>(), 
-        tup.template get<2>(), 
-        bind(&msgpackRet<A>, cb, placeholders::_1));
+    Future<A> ret = f(tup.template get<0>(),
+                      tup.template get<1>(),
+                      tup.template get<2>());
+    ret.addCallback(bind(&msgpackRet<A>, cb, ret)); 
     delete argsBuf;
   }
-  template<class A, class B, class C, class D, class E> static void msgpackArgs(function<void(B, C, D, E, function<void(A)>)> f, 
+  template<class A, class B, class C, class D, class E> 
+  void msgpackArgs(function<Future<A>(B, C, D, E)> f, 
       IOBuffer* argsBuf, function<void(const msgpack::object&)> cb) { 
     msgpack::unpacked msg;
     msgpack::unpack(&msg, argsBuf->pulldown(argsBuf->size()), argsBuf->size());
     msgpack::type::tuple<B, C, D, E> tup;
     msg.get().convert(&tup);
-    f(tup.template get<0>(), 
-        tup.template get<1>(), 
-        tup.template get<2>(), 
-        tup.template get<3>(), 
-        bind(&msgpackRet<A>, cb, placeholders::_1));
+    Future<A> ret = f(tup.template get<0>(),
+                      tup.template get<1>(),
+                      tup.template get<2>(),
+                      tup.template get<3>());
+    ret.addCallback(bind(&msgpackRet<A>, cb, ret)); 
     delete argsBuf;
   }
-  template<class A, class B, class C, class D, class E, class F> static void msgpackArgs(function<void(B, C, D, E, F, function<void(A)>)> f, 
+  template<class A, class B, class C, class D, class E, class F> 
+  void msgpackArgs(function<Future<A>(B, C, D, E, F)> f, 
       IOBuffer* argsBuf, function<void(const msgpack::object&)> cb) { 
     msgpack::unpacked msg;
     msgpack::unpack(&msg, argsBuf->pulldown(argsBuf->size()), argsBuf->size());
     msgpack::type::tuple<B, C, D, E, F> tup;
     msg.get().convert(&tup);
-    f(tup.template get<0>(), 
-        tup.template get<1>(), 
-        tup.template get<2>(), 
-        tup.template get<3>(), 
-        tup.template get<4>(), 
-        bind(&msgpackRet<A>, cb, placeholders::_1));
+    Future<A> ret = f(tup.template get<0>(),
+                      tup.template get<1>(),
+                      tup.template get<2>(),
+                      tup.template get<3>(),
+                      tup.template get<4>());
+    ret.addCallback(bind(&msgpackRet<A>, cb, ret)); 
     delete argsBuf;
   }
 }
 // Expose it all.
 
 template<class A>
-void RPCServer::registerFunction(const char* name, function<A()> f) {
-  registerFunctionAsync<A>(name, bind(&immediateToCallback<A>, f, 
-    placeholders::_1));
+void RPCServer::registerFunction(
+    const string name, function<Future<A>()> f) {
+  (*_funcs)[name] = bind(&msgpackArgs<A>, f, _1, _2);
 }
 template<class A, class B>
-void RPCServer::registerFunction(const char* name, function<A(B)> f) {
-  registerFunctionAsync<A,B>(name, bind(&immediateToCallback<A, B>, f, 
-    placeholders::_1, placeholders::_2));
+void RPCServer::registerFunction(const string name, 
+    function<Future<A>(B)> f) {
+  (*_funcs)[name] = bind(&msgpackArgs<A, B>, f, _1, _2);
 }
 template<class A, class B, class C>
-void RPCServer::registerFunction(const char* name, function<A(B,C)> f) {
-  registerFunctionAsync<A,B,C>(name, bind(&immediateToCallback<A, B, C>, f, 
-    placeholders::_1, placeholders::_2, placeholders::_3));
+void RPCServer::registerFunction(
+    const string name, function<Future<A>(B, C)> f) {
+  (*_funcs)[name] = bind(&msgpackArgs<A, B, C>, f, _1, _2);
 }
 template<class A, class B, class C, class D>
-void RPCServer::registerFunction(const char* name, function<A(B,C,D)> f) {
-  registerFunctionAsync<A,B,C,D>(name, bind(&immediateToCallback<A, B, C, D>, f, 
-    placeholders::_1, placeholders::_2, placeholders::_3, 
-    placeholders::_4));
+void RPCServer::registerFunction(
+    const string name, function<Future<A>(B, C, D)> f) {
+  (*_funcs)[name] = bind(&msgpackArgs<A, B, C, D>, f, _1, _2);
 }
 template<class A, class B, class C, class D, class E>
-void RPCServer::registerFunction(const char* name, function<A(B,C,D,E)> f) {
-  registerFunctionAsync<A,B,C,D,E>(name, bind(&immediateToCallback<A, B, C, D, E>, f, 
-    placeholders::_1, placeholders::_2, placeholders::_3, 
-    placeholders::_4, placeholders::_5));
+void RPCServer::registerFunction(
+    const string name, function<Future<A>(B, C, D, E)> f) {
+  (*_funcs)[name] = bind(&msgpackArgs<A, B, C, D, E>, f, _1, _2);
 }
 template<class A, class B, class C, class D, class E, class F>
-void RPCServer::registerFunction(const char* name, function<A(B,C,D,E,F)> f) {
-  registerFunctionAsync<A,B,C,D,E,F>(name, bind(&immediateToCallback<A, B, C, D, E, F>, f, 
-      placeholders::_1, placeholders::_2, placeholders::_3, 
-      placeholders::_4, placeholders::_5, placeholders::_6));
-}
-
-template<class A>
-void RPCServer::registerFunctionAsync(const char* name, 
-    function<void(function<void(A)>)> f) {
-  (*_funcs)[name] = bind(&msgpackArgs<A>, f, 
-          placeholders::_1, placeholders::_2);
-}
-template<class A, class B>
-void RPCServer::registerFunctionAsync(const char* name, 
-    function<void(B, function<void(A)>)> f) {
-  (*_funcs)[name] = bind(&msgpackArgs<A, B>, f,
-      placeholders::_1, placeholders::_2);
-}
-template<class A, class B, class C>
-void RPCServer::registerFunctionAsync(const char* name, 
-    function<void(B, C, function<void(A)>)> f) {
-  (*_funcs)[name] = bind(&msgpackArgs<A, B, C>, f, 
-      placeholders::_1, placeholders::_2);
-}
-template<class A, class B, class C, class D>
-void RPCServer::registerFunctionAsync(const char* name, 
-    function<void(B, C, D, function<void(A)>)> f) {
-  (*_funcs)[name] = bind(&msgpackArgs<A, B, C, D>, f, 
-      placeholders::_1, placeholders::_2);
-}
-template<class A, class B, class C, class D, class E>
-void RPCServer::registerFunctionAsync(const char* name, 
-    function<void(B, C, D, E, function<void(A)>)> f) {
-  (*_funcs)[name] = bind(&msgpackArgs<A, B, C, D, E>, f, 
-      placeholders::_1, placeholders::_2);
-}
-template<class A, class B, class C, class D, class E, class F>
-void RPCServer::registerFunctionAsync(const char* name, 
-    function<void(B, C, D, E, F, function<void(A)>)> f) {
-  (*_funcs)[name] = bind(&msgpackArgs<A, B, C, D, E, F>, f, 
-      placeholders::_1, placeholders::_2);
+void RPCServer::registerFunction(
+    const string name, function<Future<A>(B, C, D, E, F)> f) {
+  (*_funcs)[name] = bind(&msgpackArgs<A, B, C, D, E, F>, f, _1, _2);
 }
 
 /**
@@ -387,17 +376,17 @@ class RPCClient {
   void disconnect();
 
   template<class A>
-  Future<A> call(const char* name);
+  Future<A> call(const string name);
   template<class A, class B>
-  Future<A> call(const char* name, B a1);
+  Future<A> call(const string name, B a1);
   template<class A, class B, class C>
-  Future<A> call(const char* name, B a1, C a2);
+  Future<A> call(const string name, B a1, C a2);
   template<class A, class B, class C, class D>
-  Future<A> call(const char* name, B a1, C a2, D a3);
+  Future<A> call(const string name, B a1, C a2, D a3);
   template<class A, class B, class C, class D, class E>
-  Future<A> call(const char* name, B a1, C a2, D a3, E a4);
+  Future<A> call(const string name, B a1, C a2, D a3, E a4);
   template<class A, class B, class C, class D, class E, class F>
-  Future<A> call(const char* name, B a1, C a2, D a3, E a4, F a5);
+  Future<A> call(const string name, B a1, C a2, D a3, E a4, F a5);
 
   void setDisconnectCallback(function<void()> callback);
 
@@ -437,7 +426,7 @@ namespace {
 }
 
 template<class A>
-Future<A> RPCClient::call(const char* name) {
+Future<A> RPCClient::call(const string name) {
   Future<A> ret;
   _internal->_respCallbacks[_internal->_reqId] =
       bind(&msgpackResp<A>, ret, placeholders::_1);
@@ -450,7 +439,7 @@ Future<A> RPCClient::call(const char* name) {
   return ret;
 }
 template<class A, class B>
-Future<A> RPCClient::call(const char* name, B a0) {
+Future<A> RPCClient::call(const string name, B a0) {
   Future<A> ret;
   _internal->_respCallbacks[_internal->_reqId] =
       bind(&msgpackResp<A>, ret, placeholders::_1);
@@ -464,7 +453,7 @@ Future<A> RPCClient::call(const char* name, B a0) {
   return ret;
 }
 template<class A, class B, class C>
-Future<A> RPCClient::call(const char* name, B a0, C a1) {
+Future<A> RPCClient::call(const string name, B a0, C a1) {
   Future<A> ret;
   _internal->_respCallbacks[_internal->_reqId] =
       bind(&msgpackResp<A>, ret, placeholders::_1);
@@ -478,7 +467,7 @@ Future<A> RPCClient::call(const char* name, B a0, C a1) {
   return ret;
 }
 template<class A, class B, class C, class D>
-Future<A> RPCClient::call(const char* name, B a0, C a1, D a2) {
+Future<A> RPCClient::call(const string name, B a0, C a1, D a2) {
   Future<A> ret;
   _internal->_respCallbacks[_internal->_reqId] =
       bind(&msgpackResp<A>, ret, placeholders::_1);
@@ -492,7 +481,7 @@ Future<A> RPCClient::call(const char* name, B a0, C a1, D a2) {
   return ret;
 }
 template<class A, class B, class C, class D, class E>
-Future<A> RPCClient::call(const char* name, B a0, C a1, D a2, E a3) {
+Future<A> RPCClient::call(const string name, B a0, C a1, D a2, E a3) {
   Future<A> ret;
   _internal->_respCallbacks[_internal->_reqId] =
       bind(&msgpackResp<A>, ret, placeholders::_1);
@@ -506,7 +495,7 @@ Future<A> RPCClient::call(const char* name, B a0, C a1, D a2, E a3) {
   return ret;
 }
 template<class A, class B, class C, class D, class E, class F>
-Future<A> RPCClient::call(const char* name, B a0, C a1, D a2, E a3, F a4) {
+Future<A> RPCClient::call(const string name, B a0, C a1, D a2, E a3, F a4) {
   Future<A> ret;
   _internal->_respCallbacks[_internal->_reqId] =
       bind(&msgpackResp<A>, ret, placeholders::_1);

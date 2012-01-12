@@ -63,35 +63,212 @@ using std::vector;
 using namespace std::tr1;
 using namespace std::tr1::placeholders;
 
+/**
+ * Various helper functions used to serialize and deserialize arguments and
+ * return values to msgpack format.
+ */
 namespace {
-  // Helper functions used to convert A(...) functions into Future<A>(...).
-  template<class A> 
-  Future<A> immediateToFuture(function<A()> func) {
-    return func(); 
-  }
-  template<class A, class B> 
-  Future<A> immediateToFuture(function<A(B)> func, B b) {
-    return func(b);
-  }
-  template<class A, class B, class C> 
-  Future<A> immediateToFuture(function<A(B,C)> func, B b, C c) {
-    return func(b, c);
-  }
-  template<class A, class B, class C, class D> 
-  Future<A> immediateToFuture(function<A(B, C, D)> func, B b, C c, D d) {
-    return func(b, c, d);
-  }
-  template<class A, class B, class C, class D, class E> 
-  Future<A> immediateToFuture(function<A(B, C, D, E)> func, 
-                              B b, C c, D d, E e) {
-    return func(b, c, d, e);
-  }
-  template<class A, class B, class C, class D, class E, class F> 
-  Future<A> immediateToFuture(function<A(B, C, D, E, F)> func, 
-                              B b, C c, D d, E e, F f) {
-    return func(b, c, d, e, f);
-  }
-} // end anonymous namespace
+
+/**
+ * Helper callback for Future that converts from type A to type 
+ * msgpack::object.
+ */
+template<class A>
+void serializeFuture(Future<A> src, Future<IOBuffer*> dst) {
+  shared_ptr<msgpack::zone> z(new msgpack::zone());
+  msgpack::object::with_zone obj(z.get());
+  obj << src.get();
+  //IOBuffer *buf = new IOBuffer();
+  //msgpack::pack(*buf, obj);
+  //dst.set(buf);
+}
+
+/**
+ * Helper callback for Future that converts from type IOBuffer* to type A.
+ */
+template<class A>
+void deserializeFuture(Future<A> dst, Future<IOBuffer*> src) {
+  msgpack::unpacked msg;
+  msgpack::unpack(&msg, src.get()->pulldown(src.get()->size()), src.get()->size());
+  msgpack::object obj = msg.get();
+  A a;
+  obj.convert(&a);
+  dst.set(a);
+  delete src.get();
+}
+
+/**
+ * Helper functions that converts 0-5 arguments into a valid msgpack object.
+ */
+IOBuffer* serializeArgs(uint64_t id, const string& name) { 
+  IOBuffer* buf = new IOBuffer();
+  msgpack::sbuffer sbuf;
+  msgpack::pack(sbuf, msgpack::type::tuple<>());
+  msgpack::type::tuple<uint64_t, string, msgpack::type::raw_ref> req(
+      id, name, msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
+  msgpack::pack(buf, req);
+  return buf;
+}
+template<class A0> 
+IOBuffer* serializeArgs(uint64_t id, const string& name, A0 a0) { 
+  IOBuffer* buf = new IOBuffer();
+  msgpack::sbuffer sbuf;
+  msgpack::pack(sbuf, msgpack::type::tuple<A0>(a0));
+  msgpack::type::tuple<uint64_t, string, msgpack::type::raw_ref> req(
+      id, name, msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
+  msgpack::pack(buf, req);
+  return buf;
+}
+template<class A0, class A1> 
+IOBuffer* serializeArgs(uint64_t id, const string& name, A0 a0, A1 a1) { 
+  IOBuffer* buf = new IOBuffer();
+  msgpack::sbuffer sbuf;
+  msgpack::pack(sbuf, msgpack::type::tuple<A0, A1>(a0, a1));
+  msgpack::type::tuple<uint64_t, string, msgpack::type::raw_ref> req(
+      id, name, msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
+  msgpack::pack(buf, req);
+  return buf;
+}
+template<class A0, class A1, class A2> 
+IOBuffer* serializeArgs(uint64_t id, const string& name, A0 a0, A1 a1, A2 a2) { 
+  IOBuffer* buf = new IOBuffer();
+  msgpack::sbuffer sbuf;
+  msgpack::pack(sbuf, msgpack::type::tuple<A0, A1, A2>(a0, a1, a2));
+  msgpack::type::tuple<uint64_t, string, msgpack::type::raw_ref> req(
+      id, name, msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
+  msgpack::pack(buf, req);
+  return buf;
+}
+template<class A0, class A1, class A2, class A3> 
+IOBuffer* serializeArgs(uint64_t id, const string& name, A0 a0, A1 a1, A2 a2, A3 a3) { 
+  IOBuffer* buf = new IOBuffer();
+  msgpack::sbuffer sbuf;
+  msgpack::pack(sbuf, msgpack::type::tuple<A0, A1, A2, A3>(a0, a1, a2, a3));
+  msgpack::type::tuple<uint64_t, string, msgpack::type::raw_ref> req(
+      id, name, msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
+  msgpack::pack(buf, req);
+  return buf;
+}
+template<class A0, class A1, class A2, class A3, class A4> 
+IOBuffer* serializeArgs(uint64_t id, const string& name, A0 a0, A1 a1, A2 a2, A3 a3, A4 a4) { 
+  IOBuffer* buf = new IOBuffer();
+  msgpack::sbuffer sbuf;
+  msgpack::pack(sbuf, msgpack::type::tuple<A0, A1, A2, A3, A4>(a0, a1, a2, a3, a4));
+  msgpack::type::tuple<uint64_t, string, msgpack::type::raw_ref> req(
+      id, name, msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
+  msgpack::pack(buf, req);
+  return buf;
+}
+template<class A0, class A1, class A2, class A3, class A4, class A5> 
+IOBuffer* serializeArgs(uint64_t id, const string &name, A0 a0, A1 a1, A2 a2, A3 a3, A4 a4, A5 a5) { 
+  IOBuffer* buf = new IOBuffer();
+  msgpack::sbuffer sbuf;
+  msgpack::pack(sbuf, msgpack::type::tuple<A0, A1, A2, A3, A4, A5>(a0, a1, a2, a3, a4, a5));
+  msgpack::type::tuple<uint64_t, string, msgpack::type::raw_ref> req(
+      id, name, msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
+  msgpack::pack(buf, req);
+  return buf;
+}
+
+/**
+ * Helper functions that converts a msgpack object back into 0-5 arguments.
+ */
+template<class A>
+Future<IOBuffer*> deserializeArgs(function<Future<A>()> func, IOBuffer* args) {
+  Future<A> src = func();
+  Future<IOBuffer*> dst;
+  src.addCallback(bind(&serializeFuture<A>, src, dst));
+  delete args;
+  return dst;
+}
+template<class A, class A0>
+Future<IOBuffer*> deserializeArgs(function<Future<A>(A0)> func, IOBuffer* args) {
+  msgpack::unpacked msg;
+  msgpack::unpack(&msg, args->pulldown(args->size()), args->size());
+  msgpack::type::tuple<A0> tup;
+  msg.get().convert(&tup);
+  Future<A> src = func(tup.template get<0>());
+  Future<IOBuffer*> dst;
+  src.addCallback(bind(&serializeFuture<A>, src, dst));
+  delete args;
+  return dst;
+}
+template<class A, class A0, class A1>
+Future<IOBuffer*> deserializeArgs(function<Future<A>(A0, A1)> func, IOBuffer* args) {
+  msgpack::unpacked msg;
+  msgpack::unpack(&msg, args->pulldown(args->size()), args->size());
+  msgpack::type::tuple<A0, A1> tup;
+  msg.get().convert(&tup);
+  Future<A> src = func(tup.template get<0>(), tup.template get<1>());
+  Future<IOBuffer*> dst;
+  src.addCallback(bind(&serializeFuture<A>, src, dst));
+  delete args;
+  return dst;
+}
+template<class A, class A0, class A1, class A2>
+Future<IOBuffer*> deserializeArgs(function<Future<A>(A0, A1, A2)> func, IOBuffer* args) {
+  msgpack::unpacked msg;
+  msgpack::unpack(&msg, args->pulldown(args->size()), args->size());
+  msgpack::type::tuple<A0, A1, A2> tup;
+  msg.get().convert(&tup);
+  Future<A> src = func(tup.template get<0>(),
+                       tup.template get<1>(), 
+                       tup.template get<2>());
+  Future<IOBuffer*> dst;
+  src.addCallback(bind(&serializeFuture<A>, src, dst));
+  delete args;
+  return dst;
+}
+template<class A, class A0, class A1, class A2, class A3>
+Future<IOBuffer*> deserializeArgs(function<Future<A>(A0, A1, A2, A3)> func, IOBuffer* args) {
+  msgpack::unpacked msg;
+  msgpack::unpack(&msg, args->pulldown(args->size()), args->size());
+  msgpack::type::tuple<A0, A1, A2, A3> tup;
+  msg.get().convert(&tup);
+  Future<A> src = func(tup.template get<0>(),
+                       tup.template get<1>(), 
+                       tup.template get<2>(), 
+                       tup.template get<3>());
+  Future<IOBuffer*> dst;
+  src.addCallback(bind(&serializeFuture<A>, src, dst));
+  delete args;
+  return dst;
+}
+template<class A, class A0, class A1, class A2, class A3, class A4>
+Future<IOBuffer*> deserializeArgs(function<Future<A>(A0, A1, A2, A3, A4)> func, IOBuffer* args) {
+  msgpack::unpacked msg;
+  msgpack::unpack(&msg, args->pulldown(args->size()), args->size());
+  msgpack::type::tuple<A0, A1, A2, A3, A4> tup;
+  msg.get().convert(&tup);
+  Future<A> src = func(tup.template get<0>(),
+                       tup.template get<1>(), 
+                       tup.template get<2>(), 
+                       tup.template get<3>(), 
+                       tup.template get<4>());
+  Future<IOBuffer*> dst;
+  src.addCallback(bind(&serializeFuture<A>, src, dst));
+  delete args;
+  return dst;
+}
+template<class A, class A0, class A1, class A2, class A3, class A4, class A5>
+Future<IOBuffer*> deserializeArgs(function<Future<A>(A0, A1, A2, A3, A4, A5)> func, IOBuffer* args) {
+  msgpack::unpacked msg;
+  msgpack::unpack(&msg, args->pulldown(args->size()), args->size());
+  msgpack::type::tuple<A0, A1, A2, A3, A4, A5> tup;
+  msg.get().convert(&tup);
+  Future<A> src = func(tup.template get<0>(),
+                       tup.template get<1>(), 
+                       tup.template get<2>(), 
+                       tup.template get<3>(), 
+                       tup.template get<4>(), 
+                       tup.template get<5>());
+  Future<IOBuffer*> dst;
+  src.addCallback(bind(&serializeFuture<A>, src, dst));
+  delete args;
+  return dst;
+}
+
+} // end anonymous namespace 
 
 /**
  * Runs an RPC server on a given TcpListenSocket
@@ -105,10 +282,10 @@ namespace {
  * the server is shut down.
  */
 class RPCServer {
- public:
-  typedef function<
-      void(IOBuffer*, function<void(const msgpack::object&)>)> RPCFunc;
+ private:
+  typedef function<Future<IOBuffer*>(IOBuffer*)> RPCFunc;
 
+ public:
   /**
    * Represents a single connection to a single client endpoint.
    * The only thing a user can do with a connection is start accepting
@@ -139,7 +316,10 @@ class RPCServer {
       void disconnect();
       void setDisconnectCallback(function<void()> f);
 
-      void responseCallback(uint64_t id, const msgpack::object& obj);
+      void responseCallback(uint64_t id, Future<IOBuffer*> obj);
+      void deferredRPCCall(uint64_t id, 
+          function<Future<IOBuffer*>(IOBuffer*)> func,
+          IOBuffer* args);
       void onReceive(IOBuffer *buf);
       void onDisconnect();
 
@@ -177,41 +357,7 @@ class RPCServer {
   void setAcceptCallback(function<void(shared_ptr<Connection>)> f);
 
   /**
-   * Registers an RPC function that returns its result immediately.
-   * This is done by wrapping the function so it returns a Future<>.
-   * /
-  template<class A>
-  void registerFunction(const char* name, function<A()> f) {
-    registerFunction<A>(name, bind(&immediateToFuture<A>, f));
-  }
-  template<class A, class B>
-  void registerFunction(const char* name, function<A(B)> f) {
-    registerFunction<A, B>(name, 
-        bind(&immediateToFuture<A, B>, f, _1));
-  }
-  template<class A, class B, class C>
-  void registerFunction(const char* name, function<A(B,C)> f) {
-    registerFunction<A, B, C>(name, 
-        bind(&immediateToFuture<A, B, C>, f, _1, _2));
-  }
-  template<class A, class B, class C, class D>
-  void registerFunction(const char* name, function<A(B,C,D)> f) {
-    registerFunction<A, B, C, D>(name, 
-        bind(&immediateToFuture<A, B, C, D>, f, _1, _2, _3));
-  }
-  template<class A, class B, class C, class D, class E>
-  void registerFunction(const char* name, function<A(B,C,D,E)> f) {
-    registerFunction<A, B, C, D, E>(name, 
-        bind(&immediateToFuture<A, B, C, D, E>, f, _1, _2, _3, _4));
-  }
-  template<class A, class B, class C, class D, class E, class F>
-  void registerFunction(const char* name, function<A(B,C,D,E,F)> f) {
-    registerFunction<A, B, C, D, E, F>(name, 
-        bind(&immediateToFuture<A, B, C, D, E, F>, f, _1, _2, _3, _4, _5));
-  }*/
-
-  /**
-   * Registers an RPC function that returns its result via a Future<>
+   * Registers RPC functions. Functions *must* return results via a Future.
    */
   template<class A>
   void registerFunction(const string name, function<Future<A>()> f);
@@ -227,6 +373,7 @@ class RPCServer {
   void registerFunction(const string name, function<Future<A>(B,C,D,E,F)> f);
 
  private:
+
   RPCServer(shared_ptr<TcpListenSocket> s);
   void onAccept(shared_ptr<TcpSocket> s);
 
@@ -236,121 +383,35 @@ class RPCServer {
   function<void(shared_ptr<Connection> conn)> _acceptCallback;
 };
 
-namespace {
-  // Helper callback used to serialize an instance of A and call func().
-  template<class A> 
-  void msgpackRet(function<void(const msgpack::object&)> func, Future<A> ret) {
-    shared_ptr<msgpack::zone> z(new msgpack::zone());
-    msgpack::object::with_zone obj(z.get());
-    obj << ret.get();
-    func(obj);
-  }
-
-  // Helper functions used to deserialize function arguments and execute functions.
-  template<class A> 
-  void msgpackArgs(function<Future<A>()> f,
-      IOBuffer* argsBuf, function<void(const msgpack::object&)> cb) { 
-    DCHECK_EQ(0, argsBuf->size());
-    Future<A> ret = f();
-    ret.addCallback(bind(&msgpackRet<A>, cb, ret)); 
-    delete argsBuf;
-  }
-  template<class A, class B> 
-  void msgpackArgs(function<Future<A>(B)> f, 
-      IOBuffer* argsBuf, function<void(const msgpack::object&)> cb) { 
-    msgpack::unpacked msg;
-    msgpack::unpack(&msg, argsBuf->pulldown(argsBuf->size()), argsBuf->size());
-    msgpack::type::tuple<B> tup;
-    msg.get().convert(&tup);
-    Future<A> ret = f(tup.template get<0>());
-    ret.addCallback(bind(&msgpackRet<A>, cb, ret)); 
-    delete argsBuf;
-  }
-  template<class A, class B, class C>
-  void msgpackArgs(function<Future<A>(B, C)> f, 
-      IOBuffer* argsBuf, function<void(const msgpack::object&)> cb) { 
-    msgpack::unpacked msg;
-    msgpack::unpack(&msg, argsBuf->pulldown(argsBuf->size()), argsBuf->size());
-    msgpack::type::tuple<B, C> tup;
-    msg.get().convert(&tup);
-    Future<A> ret = f(tup.template get<0>(), tup.template get<1>());
-    ret.addCallback(bind(&msgpackRet<A>, cb, ret)); 
-    delete argsBuf;
-  }
-  template<class A, class B, class C, class D> 
-  void msgpackArgs(function<Future<A>(B, C, D)> f, 
-      IOBuffer* argsBuf, function<void(const msgpack::object&)> cb) { 
-    msgpack::unpacked msg;
-    msgpack::unpack(&msg, argsBuf->pulldown(argsBuf->size()), argsBuf->size());
-    msgpack::type::tuple<B, C, D> tup;
-    msg.get().convert(&tup);
-    Future<A> ret = f(tup.template get<0>(),
-                      tup.template get<1>(),
-                      tup.template get<2>());
-    ret.addCallback(bind(&msgpackRet<A>, cb, ret)); 
-    delete argsBuf;
-  }
-  template<class A, class B, class C, class D, class E> 
-  void msgpackArgs(function<Future<A>(B, C, D, E)> f, 
-      IOBuffer* argsBuf, function<void(const msgpack::object&)> cb) { 
-    msgpack::unpacked msg;
-    msgpack::unpack(&msg, argsBuf->pulldown(argsBuf->size()), argsBuf->size());
-    msgpack::type::tuple<B, C, D, E> tup;
-    msg.get().convert(&tup);
-    Future<A> ret = f(tup.template get<0>(),
-                      tup.template get<1>(),
-                      tup.template get<2>(),
-                      tup.template get<3>());
-    ret.addCallback(bind(&msgpackRet<A>, cb, ret)); 
-    delete argsBuf;
-  }
-  template<class A, class B, class C, class D, class E, class F> 
-  void msgpackArgs(function<Future<A>(B, C, D, E, F)> f, 
-      IOBuffer* argsBuf, function<void(const msgpack::object&)> cb) { 
-    msgpack::unpacked msg;
-    msgpack::unpack(&msg, argsBuf->pulldown(argsBuf->size()), argsBuf->size());
-    msgpack::type::tuple<B, C, D, E, F> tup;
-    msg.get().convert(&tup);
-    Future<A> ret = f(tup.template get<0>(),
-                      tup.template get<1>(),
-                      tup.template get<2>(),
-                      tup.template get<3>(),
-                      tup.template get<4>());
-    ret.addCallback(bind(&msgpackRet<A>, cb, ret)); 
-    delete argsBuf;
-  }
-}
-// Expose it all.
-
 template<class A>
 void RPCServer::registerFunction(
     const string name, function<Future<A>()> f) {
-  (*_funcs)[name] = bind(&msgpackArgs<A>, f, _1, _2);
+  (*_funcs)[name] = bind(&deserializeArgs<A>, f, _1);
 }
 template<class A, class B>
 void RPCServer::registerFunction(const string name, 
     function<Future<A>(B)> f) {
-  (*_funcs)[name] = bind(&msgpackArgs<A, B>, f, _1, _2);
+  (*_funcs)[name] = bind(&deserializeArgs<A, B>, f, _1);
 }
 template<class A, class B, class C>
 void RPCServer::registerFunction(
     const string name, function<Future<A>(B, C)> f) {
-  (*_funcs)[name] = bind(&msgpackArgs<A, B, C>, f, _1, _2);
+  (*_funcs)[name] = bind(&deserializeArgs<A, B, C>, f, _1);
 }
 template<class A, class B, class C, class D>
 void RPCServer::registerFunction(
     const string name, function<Future<A>(B, C, D)> f) {
-  (*_funcs)[name] = bind(&msgpackArgs<A, B, C, D>, f, _1, _2);
+  (*_funcs)[name] = bind(&deserializeArgs<A, B, C, D>, f, _1);
 }
 template<class A, class B, class C, class D, class E>
 void RPCServer::registerFunction(
     const string name, function<Future<A>(B, C, D, E)> f) {
-  (*_funcs)[name] = bind(&msgpackArgs<A, B, C, D, E>, f, _1, _2);
+  (*_funcs)[name] = bind(&deserializeArgs<A, B, C, D, E>, f, _1);
 }
 template<class A, class B, class C, class D, class E, class F>
 void RPCServer::registerFunction(
     const string name, function<Future<A>(B, C, D, E, F)> f) {
-  (*_funcs)[name] = bind(&msgpackArgs<A, B, C, D, E, F>, f, _1, _2);
+  (*_funcs)[name] = bind(&deserializeArgs<A, B, C, D, E, F>, f, _1);
 }
 
 /**
@@ -412,100 +473,58 @@ class RPCClient {
   shared_ptr<Internal> _internal;
 };
 
-namespace {
-  template<class A> 
-  void msgpackResp(Future<A> ret, IOBuffer* argsBuf) {
-    msgpack::unpacked msg;
-    msgpack::unpack(&msg, argsBuf->pulldown(argsBuf->size()), argsBuf->size());
-    msgpack::object obj = msg.get();
-    A a;
-    obj.convert(&a);
-    ret.set(a);
-    delete argsBuf;
-  }
-}
-
 template<class A>
 Future<A> RPCClient::call(const string name) {
   Future<A> ret;
   _internal->_respCallbacks[_internal->_reqId] =
-      bind(&msgpackResp<A>, ret, placeholders::_1);
-  IOBuffer *buf = new IOBuffer();
-  msgpack::sbuffer sbuf;
-  msgpack::type::tuple<uint64_t, string, msgpack::type::raw_ref> req(
-      _internal->_reqId++, string(name), msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
-  msgpack::pack(buf, req);
-  _internal->_socket->write(buf);
+      bind(&deserializeFuture<A>, ret, placeholders::_1);
+  _internal->_socket->write(serializeArgs(
+      _internal->_reqId++, name));
   return ret;
 }
-template<class A, class B>
-Future<A> RPCClient::call(const string name, B a0) {
+template<class A, class A0>
+Future<A> RPCClient::call(const string name, A0 a0) {
   Future<A> ret;
   _internal->_respCallbacks[_internal->_reqId] =
-      bind(&msgpackResp<A>, ret, placeholders::_1);
-  IOBuffer *buf = new IOBuffer();
-  msgpack::sbuffer sbuf;
-  msgpack::pack(sbuf, msgpack::type::tuple<B>(a0));
-  msgpack::type::tuple<uint64_t, string, msgpack::type::raw_ref> req(
-      _internal->_reqId++, string(name), msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
-  msgpack::pack(buf, req);
-  _internal->_socket->write(buf);
+      bind(&deserializeFuture<A>, ret, placeholders::_1);
+  _internal->_socket->write(serializeArgs<A0>(
+      _internal->_reqId++, name, a0));
   return ret;
 }
-template<class A, class B, class C>
-Future<A> RPCClient::call(const string name, B a0, C a1) {
+template<class A, class A0, class A1>
+Future<A> RPCClient::call(const string name, A0 a0, A1 a1) {
   Future<A> ret;
   _internal->_respCallbacks[_internal->_reqId] =
-      bind(&msgpackResp<A>, ret, placeholders::_1);
-  IOBuffer *buf = new IOBuffer();
-  msgpack::sbuffer sbuf;
-  msgpack::pack(sbuf, msgpack::type::tuple<B,C>(a0, a1));
-  msgpack::type::tuple<uint64_t, string, msgpack::type::raw_ref> req(
-      _internal->_reqId++, string(name), msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
-  msgpack::pack(buf, req);
-  _internal->_socket->write(buf);
+      bind(&deserializeFuture<A>, ret, placeholders::_1);
+  _internal->_socket->write(serializeArgs<A0, A1>(
+      _internal->_reqId++, name, a0, a1));
   return ret;
 }
-template<class A, class B, class C, class D>
-Future<A> RPCClient::call(const string name, B a0, C a1, D a2) {
+template<class A, class A0, class A1, class A2>
+Future<A> RPCClient::call(const string name, A0 a0, A1 a1, A2 a2) {
   Future<A> ret;
   _internal->_respCallbacks[_internal->_reqId] =
-      bind(&msgpackResp<A>, ret, placeholders::_1);
-  IOBuffer *buf = new IOBuffer();
-  msgpack::sbuffer sbuf;
-  msgpack::pack(sbuf, msgpack::type::tuple<B,C,D>(a0, a1, a2));
-  msgpack::type::tuple<uint64_t, string, msgpack::type::raw_ref> req(
-      _internal->_reqId++, string(name), msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
-  msgpack::pack(buf, req);
-  _internal->_socket->write(buf);
+      bind(&deserializeFuture<A>, ret, placeholders::_1);
+  _internal->_socket->write(serializeArgs<A0, A1, A2>(
+      _internal->_reqId++, name, a0, a1, a2));
   return ret;
 }
-template<class A, class B, class C, class D, class E>
-Future<A> RPCClient::call(const string name, B a0, C a1, D a2, E a3) {
+template<class A, class A0, class A1, class A2, class A3>
+Future<A> RPCClient::call(const string name, A0 a0, A1 a1, A2 a2, A3 a3) {
   Future<A> ret;
   _internal->_respCallbacks[_internal->_reqId] =
-      bind(&msgpackResp<A>, ret, placeholders::_1);
-  IOBuffer *buf = new IOBuffer();
-  msgpack::sbuffer sbuf;
-  msgpack::pack(sbuf, msgpack::type::tuple<B,C,D,E>(a0, a1, a2, a3));
-  msgpack::type::tuple<uint64_t, string, msgpack::type::raw_ref> req(
-      _internal->_reqId++, string(name), msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
-  msgpack::pack(buf, req);
-  _internal->_socket->write(buf);
+      bind(&deserializeFuture<A>, ret, placeholders::_1);
+  _internal->_socket->write(serializeArgs<A0, A1, A2>(
+      _internal->_reqId++, name, a0, a1, a2, a3));
   return ret;
 }
-template<class A, class B, class C, class D, class E, class F>
-Future<A> RPCClient::call(const string name, B a0, C a1, D a2, E a3, F a4) {
+template<class A, class A0, class A1, class A2, class A3, class A4>
+Future<A> RPCClient::call(const string name, A0 a0, A1 a1, A2 a2, A3 a3, A4 a4) {
   Future<A> ret;
   _internal->_respCallbacks[_internal->_reqId] =
-      bind(&msgpackResp<A>, ret, placeholders::_1);
-  IOBuffer *buf = new IOBuffer();
-  msgpack::sbuffer sbuf;
-  msgpack::pack(sbuf, msgpack::type::tuple<B,C,D,E,F>(a0, a1, a2, a3, a4));
-  msgpack::type::tuple<uint64_t, string, msgpack::type::raw_ref> req(
-      _internal->_reqId++, string(name), msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
-  msgpack::pack(buf, req);
-  _internal->_socket->write(buf);
+      bind(&deserializeFuture<A>, ret, placeholders::_1);
+  _internal->_socket->write(serializeArgs<A0, A1, A2, A3, A4>(
+      _internal->_reqId++, name, a0, a1, a2, a3, a4));
   return ret;
 }
 }

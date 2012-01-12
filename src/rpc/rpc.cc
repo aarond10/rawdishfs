@@ -111,14 +111,23 @@ void RPCServer::Connection::Internal::disconnect() {
 }
 
 void RPCServer::Connection::Internal::responseCallback(
-    uint64_t id, const msgpack::object& obj) {
-  msgpack::sbuffer sbuf;
-  msgpack::pack(sbuf, obj);
+    uint64_t id, Future<IOBuffer*> obj) {
   msgpack::type::tuple<uint64_t, msgpack::type::raw_ref> ret(id, 
-      msgpack::type::raw_ref(sbuf.data(), sbuf.size()));
+      msgpack::type::raw_ref(
+          obj.get()->pulldown(obj.get()->size()),
+          obj.get()->size()));
   IOBuffer *buf = new IOBuffer();
   msgpack::pack(*buf, ret);
+  delete obj.get();
   _socket->write(buf);
+}
+
+void RPCServer::Connection::Internal::deferredRPCCall(
+    uint64_t id,
+    function<Future<IOBuffer*>(IOBuffer*)> func,
+    IOBuffer* args) {
+  Future<IOBuffer*> ret = func(args);
+  ret.addCallback(bind(&Connection::Internal::responseCallback, this, id, ret));
 }
 
 void RPCServer::Connection::Internal::onReceive(IOBuffer *buf) {
@@ -149,12 +158,12 @@ void RPCServer::Connection::Internal::onReceive(IOBuffer *buf) {
       // thread. Unfortuntely, msgpack hasn't been written with decent support
       // for deep copying of objects so we pass a buffer around here that needs
       // to be unpacked in the other thread.
-      IOBuffer *argBuf = new IOBuffer(req.get<2>().ptr, req.get<2>().size);
-      std::tr1::function<void(const msgpack::object&)> cb = 
-          std::tr1::bind(&RPCServer::Connection::Internal::responseCallback, 
-              this, id, std::tr1::placeholders::_1);
-      _socket->getEventManager()->enqueue(
-          std::tr1::bind(_funcs->at(name), argBuf, cb));
+      _socket->getEventManager()->enqueue(bind(
+          &Connection::Internal::deferredRPCCall, 
+          this,
+          id, 
+          _funcs->at(name), 
+          new IOBuffer(req.get<2>().ptr, req.get<2>().size)));
     } else {
       LOG(ERROR) << "Unknown RPC method: " << name << ". Disconnecting.";
       _socket->getEventManager()->enqueue(
@@ -253,9 +262,9 @@ void RPCClient::Internal::onReceive(IOBuffer *buf) {
       // thread. Unfortuntely, msgpack hasn't been written with decent support
       // for deep copying of objects so we pass a buffer around here that needs
       // to be unpacked in the other thread.
-      IOBuffer *argBuf = new IOBuffer(req.get<1>().ptr, req.get<1>().size);
-      _socket->getEventManager()->enqueue(
-          std::tr1::bind(_respCallbacks[id], argBuf));
+      _socket->getEventManager()->enqueue(std::tr1::bind(
+          _respCallbacks[id], 
+          new IOBuffer(req.get<1>().ptr, req.get<1>().size)));
       _respCallbacks.erase(id);
     } else {
       LOG(ERROR) << "Unknown RPC response for ID: " << id;

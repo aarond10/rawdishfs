@@ -159,11 +159,8 @@ void RPCServer::Connection::Internal::onReceive(IOBuffer *buf) {
       // for deep copying of objects so we pass a buffer around here that needs
       // to be unpacked in the other thread.
       _socket->getEventManager()->enqueue(bind(
-          &Connection::Internal::deferredRPCCall, 
-          this,
-          id, 
-          _funcs->at(name), 
-          new IOBuffer(req.get<2>().ptr, req.get<2>().size)));
+          &Connection::Internal::deferredRPCCall, this, id, 
+          _funcs->at(name), new IOBuffer(req.get<2>().ptr, req.get<2>().size)));
     } else {
       LOG(ERROR) << "Unknown RPC method: " << name << ". Disconnecting.";
       _socket->getEventManager()->enqueue(

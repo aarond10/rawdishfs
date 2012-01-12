@@ -75,12 +75,9 @@ namespace {
  */
 template<class A>
 void serializeFuture(Future<A> src, Future<IOBuffer*> dst) {
-  shared_ptr<msgpack::zone> z(new msgpack::zone());
-  msgpack::object::with_zone obj(z.get());
-  obj << src.get();
-  //IOBuffer *buf = new IOBuffer();
-  //msgpack::pack(*buf, obj);
-  //dst.set(buf);
+  IOBuffer *buf = new IOBuffer();
+  msgpack::pack(buf, src.get());
+  dst.set(buf);
 }
 
 /**

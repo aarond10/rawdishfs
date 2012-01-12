@@ -18,6 +18,6 @@ clean:
 	rm -f *.a *.o rpc_test rpc_benchmark
 
 .PHONY: test
-test: rpc_test
+test: rpc_test rpc_benchmark
 	valgrind --db-attach=yes ./rpc_test
 	valgrind --db-attach=yes ./rpc_benchmark

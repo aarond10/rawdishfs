@@ -1,5 +1,6 @@
 *.o
 *.a
+*_benchmark
 *_test
 src/include
 src/lib

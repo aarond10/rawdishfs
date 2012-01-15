@@ -100,6 +100,7 @@ Future<IOBuffer *> FileBlockStore::getBlock(const string &key) {
   int r = read(fd, data, _blocksize);
   if (r <= 0) {
     LOG(INFO) << "block empty or read failed " << r;
+    close(fd);
     delete [] data;
     return NULL;
   }

@@ -59,6 +59,7 @@ TEST(FileBlockStoreTest, BasicTests) {
   //sync();
   buf = bs1.getBlock("apple");
   EXPECT_TRUE(buf != NULL);
+  delete buf;
 
   uint32_t blocks_a = bs1.numTotalBlocks();
   uint32_t blocks_a2 = bs1.numFreeBlocks();
@@ -70,10 +71,12 @@ TEST(FileBlockStoreTest, BasicTests) {
   buf = bs1.getBlock("banana");
   EXPECT_TRUE(buf != NULL);
   EXPECT_TRUE(strcmp("banana",(char *)buf->pulldown(buf->size()))==0);
+  delete buf;
 
   buf = bs1.getBlock("apple");
   EXPECT_TRUE(buf != NULL);
   EXPECT_TRUE(strcmp("apple",(char *)buf->pulldown(buf->size()))==0);
+  delete buf;
 
   uint32_t blocks_b = bs1.numTotalBlocks();
   uint32_t blocks_b2 = bs1.numFreeBlocks();

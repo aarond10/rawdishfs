@@ -70,11 +70,11 @@ Future<bool> FileBlockStorePutBlockHelper(
 
 void FileBlockStoreGetBlockHelperCallback(
     Future< vector<uint8_t> > dst, Future<IOBuffer*> src) {
-  LOG(INFO) << "FileBlockStoreGetBlockHelperCallback";
-  vector<uint8_t> ret;
+  LOG(INFO) << "FileBlockStoreGetBlockHelperCallback with src " << src.get();
   if (src.get() == NULL) {
     dst.set(vector<uint8_t>());
   } else {
+    vector<uint8_t> ret;
     ret.resize(src.get()->size());
     memcpy(&ret[0], src.get()->pulldown(src.get()->size()), src.get()->size());
     delete src.get();
@@ -250,7 +250,7 @@ class RemoteBlockStore : public BlockStore {
     if (proxy_ret.get().size() == 0) {
       ret.set(NULL);
     } else {
-      IOBuffer *buf = new IOBuffer((const char *)&proxy_ret.get()[0], 
+      IOBuffer *buf = new IOBuffer((const char *)(&proxy_ret.get()[0]), 
                                    proxy_ret.get().size());
       ret.set(buf);
     }

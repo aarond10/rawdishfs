@@ -86,12 +86,15 @@ TEST(RemoteBlockStore, Basics) {
   const char *str = "0123456789abcde";
   Notification n;
   ASSERT_TRUE(rbs.putBlock("abc", new IOBuffer(str, 16)));
-/*  IOBuffer *ret = rbs.getBlock("abc");
+
+  IOBuffer *ret = rbs.getBlock("abc");
   ASSERT_TRUE(ret != NULL);
   ASSERT_EQ(16, ret->size());
   ASSERT_EQ(0, memcmp(str, ret->pulldown(ret->size()), ret->size()));
-  delete ret;*/
+  delete ret;
   
+  LOG(INFO) << "Remove block xxx: " << rbs.removeBlock("xxx");
+  LOG(INFO) << "Block Size: " << rbs.blockSize();
   LOG(INFO) << "Free blocks: " << rbs.numFreeBlocks();
   LOG(INFO) << "Total blocks: " << rbs.numTotalBlocks();
   util::BloomFilter bf = rbs.bloomfilter();

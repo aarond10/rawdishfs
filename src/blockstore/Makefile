@@ -1,6 +1,6 @@
 include ../Makefile.config
-CPPFLAGS:= ${CPPFLAGS} -g -pg
-LDFLAGS:= ${LDFLAGS} -lpthread -lstdc++ -lglog -lgtest -lgtest_main -pg -lepoll_threadpool -lmsgpack
+CPPFLAGS:= ${CPPFLAGS} -g
+LDFLAGS:= ${LDFLAGS} -lpthread -lstdc++ -lglog -lgtest -lgtest_main -lepoll_threadpool -lmsgpack
 
 all: fileblockstore_test remoteblockstore_test blockstore_daemon
 

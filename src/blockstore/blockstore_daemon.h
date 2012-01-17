@@ -30,6 +30,7 @@
 #define _BLOCKSTORE_BLOCKSTORE_DAEMON_H_
 
 #include "blockstore/fileblockstore.h"
+#include "blockstore/remoteblockstore.h"
 #include "rpc/rpc.h"
 #include "util/bloomfilter.h"
 
@@ -43,12 +44,14 @@
 namespace epoll_threadpool {
   class EventManager;
   class IOBuffer;
+  class TcpSocket;
 }
 
 namespace blockstore {
 
 using epoll_threadpool::EventManager;
 using epoll_threadpool::IOBuffer;
+using epoll_threadpool::TcpSocket;
 using rpc::RPCServer;
 using rpc::RPCServer;
 using rpc::RPCClient;
@@ -63,12 +66,31 @@ using util::BloomFilter;
 /**
  * Represents a single node in a full-mesh network of BlockStore nodes. 
  * This class takes care of maintaining bloom filters for each of the
- * BlockStore's in the network, performing incremental checking of blocks,
- * garbage collection and maintaining connections with peers.
+ * remote BlockStore's in the network, performing incremental checking 
+ * of blocks, garbage collection and maintaining connections with peers.
+ *
+ * Internally, this class sets up an RPC server for incoming peer
+ * connections. This RPC server provides "AddPeer" and "AddBlockStore"
+ * methods. The "AddBlockStore" method is ignored unless a known peer is
+ * also provided.
+ *
+ * "AddPeer" is an _instruction_ by a remote node to ask the local
+ * node to add a peer. If the local node already has the specified peer,
+ * the RPC returns true. If not, the local node will attempt to initiate
+ * a connection to the specified address and call "AddPeer(myname, myport)".
+ * If that succeeds, the RPC returns true and the connection is held open 
+ * and used for BlockStore requests to the node. If not, false is returned
+ * and the Peer is forgotten.
+ *
+ * After a remote node is successfully added as a peer, we send 
+ * "AddBlockStore" RPCs to it for each of our registered BlockStores.
+ * The remote end adds this to its table of available stores and can use it
+ * for both reads and writes from this point simply by issuing requests
+ * down its already-open RPC channel.
  */
 class BlockStoreNode {
  public:
-  BlockStoreNode(EventManager *em);
+  BlockStoreNode(EventManager *em, const string& host);
   virtual ~BlockStoreNode();
 
   /**
@@ -93,7 +115,7 @@ class BlockStoreNode {
    * on the current network. Peer discovery will then kick in to find all
    * other nodes.
    */
-  void addPeer(const string &ip, uint16_t port);
+  bool addPeer(const string &ip, uint16_t port);
 
   /**
    * Adds a BlockStore to be managed by the node.
@@ -105,16 +127,19 @@ class BlockStoreNode {
 
   /**
    * Removes a BlockStore from the set managed by this node.
-   * Note: This should rarely, if ever be required.
+   * Note: This should rarely, if ever be required. It will *not* destroy 
+   * data.
+   * @note Planned but not currently implemented.
    */
-  void removeBlockStore(uint64_t bsid);
+  //void removeBlockStore(uint64_t bsid);
 
   /**
    * Returns the approximate number of free bytes in the whole network. This
    * is equivalent to the sum of all the known garbage collectable blocks
    * in all BlockStore's in the network plus all unallocated free space.
+   * @note Planned but not currently implemented.
    */
-  uint64_t getFreeSpace() const;
+  //uint64_t getFreeSpace() const;
 
   /**
    * Adds a block of data to the network.
@@ -135,31 +160,56 @@ class BlockStoreNode {
    * NULL will be returned. If an IOBuffer is returned, ownership is passed
    * to the caller.
    */
-  Future<IOBuffer *> getBlock(const string &name);
+  Future<IOBuffer*> getBlock(const string &name);
 
   /**
    * Sets a garbage collection bloom filter.
    * Any block names that are not in the filter will be marked as a candidate
    * for being overwritten. The ownership of bloomfilter will be passed to
    * the function.
+   * @note Planned but not currently implemented.
    */
-  void setGCBloomFilter(BloomFilter *bloomfilter);
+  //void setGCBloomFilter(BloomFilter *bloomfilter);
 
   /**
    * In the process of incremental checking, a node may come across blocks for
    * which it can't find the next in sequence. The names of these nodes are
    * stored in a list. This function returns the list and then clears it.
+   * @note Planned but not currently implemented.
    */
-  vector<string> getMissingBlocks() const;
+  //vector<string> getMissingBlocks() const;
 
  private:
   /**
-   * Manages communication with a node's peer.
+   * Manages communication with a node's peer. This is done by registering
+   * an RPC function that remote peers call to announce new BlockStores
+   * and an RPC function that remote peers call to announce new Peers.
+   * Any RemoteBlockStores announced by peers are immediately accessible
+   * via the same RPC channel using the provided ID.
    */
   class Peer {
    public:
-    Peer(const string &ip, uint16_t port);
-    virtual ~Peer();
+    Peer() { }
+    virtual ~Peer() {
+      LOG(INFO) << "Disconnecting from peer";
+    }
+
+    /**
+     * Connects to a peer and either returns a boolean true if successful.
+     * This will request the remote peer connect back to us. If either of
+     * these are unsuccessful, the call will fail.
+     */
+    Future<bool> connect(EventManager* em,
+                         const string &myhost, uint16_t myport,
+                         const string &host, uint16_t port) {
+      shared_ptr<TcpSocket> socket = TcpSocket::connect(em, host, port);
+      if (socket == NULL) {
+        return false;
+      }
+      _client.reset(new RPCClient(socket));
+      _client->start();
+      return _client->call<bool, string, uint16_t>("addPeer", myhost, myport);
+    }
 
     /**
      * Tells a peer roughly how many free bytes we think we have on local
@@ -175,7 +225,7 @@ class BlockStoreNode {
      * NOT in a provided BloomFilter are when the requested block matches NO 
      * BloomFilters. This will happen for very new blocks and missing blocks.
      */
-    void sendBSBloomFilter(uint64_t bsid, const BloomFilter& bloomfilter);
+    //void sendBSBloomFilter(uint64_t bsid, const BloomFilter& bloomfilter);
 
     /**
      * Asks a peer explicitly to store a block.
@@ -183,7 +233,7 @@ class BlockStoreNode {
      * mind but the peer itself will decide the most appropriate location for
      * us.
      */
-    Future<bool> setBlock(const string& name, IOBuffer *data);
+    Future<bool> setBlock(const string& name, IOBuffer* data);
 
     /**
      * Explicitly requests a block from a given peer. This will never recurse.
@@ -191,21 +241,134 @@ class BlockStoreNode {
     Future<IOBuffer *> getBlock(const string& name);
 
     /**
-     * Get free space for a given BlockStore.
+     * Get free space for a given BlockStore... TODO(aarond10)
      */
 
-   private:
+    /**
+     * Sets a callback to be triggered when this peer disconnects.
+     */
+    void setDisconnectCallback(function<void()> callback) {
+      _client->setDisconnectCallback(callback);
+    }
+
+    /**
+     * Registers a new BlockStore with ID bsid as being available
+     * via this peer.
+     */
+    shared_ptr<BlockStore> registerBlockStore(uint64_t bsid) {
+      _bsids.push_back(bsid);
+      return shared_ptr<BlockStore>(new RemoteBlockStore(_client, bsid));
+    }
+
+    /**
+     * Returns a list of all the BlockStore ID's registered as
+     * being available via this peer.
+     */
+    const list<uint64_t> &getBlockStoreIDs() const { return _bsids; }
+
+   //private:
     shared_ptr<RPCClient> _client;
+    string _ip;
+    string _port;
+    list<uint64_t> _bsids;
+    //uint64_t _free_blocks;
+    //BloomFilter _bloomfilter;
+
   };
 
   BlockStore *_findBestLocation(size_t hash);
   BlockStore *_findNextBestLocation(size_t hash);
 
   EventManager *_em;
+  string _host;
   uint16_t _port;
+  Notification _stopped;  // triggered when onTimer stops looping.
+
+  /**
+   * Convenience structure for comparing peers by their public addresses.
+   */
+  struct PeerAddr {
+    PeerAddr(const string &host, uint16_t port) : host(host), port(port) { }
+    string host;
+    uint16_t port;
+    bool operator==(const PeerAddr& other) const {
+      return host == other.host && port == other.port;
+    }
+    bool operator!=(const PeerAddr& other) const { return !operator==(other); }
+    bool operator<(const PeerAddr& other) const {
+      return host < other.host || (host == other.host && port < other.port);
+    }
+  };
+
   shared_ptr<RPCServer> _rpc_server;
-  set< shared_ptr<Peer> > _peers;
-  map< uint64_t, shared_ptr<FileBlockStore> > _blockstores;
+  map< PeerAddr, shared_ptr<Peer> > _peers;
+  map< uint64_t, shared_ptr<BlockStore> > _blockstores;
+
+  /**
+   * Helper function that removes a peer that has disconnected.
+   */
+  void RemovePeer(PeerAddr addr) {
+    // TODO: Thread safety.
+    shared_ptr<Peer> peer = _peers[addr];
+
+    // Remove BlockStore's owned by this peer.
+    const list<uint64_t> &bsids = peer->getBlockStoreIDs();
+    for (list<uint64_t>::const_iterator i = bsids.begin(); i != bsids.end(); ++i) {
+      _blockstores.erase(*i);
+    }
+
+    // Remove the peer itself
+    _peers.erase(addr);
+  }
+
+  /**
+   * RPC server function used by remote nodes to add a peer to our list.
+   */
+  Future<bool> RPCAddPeer(string host, uint16_t port) {
+    PeerAddr addr(host, port);
+    if (_peers.find(addr) != _peers.end()) {
+      // Already connected.
+      return true;
+    } else {
+      shared_ptr<Peer> peer(new Peer());
+      _peers[addr] = peer;
+      Future<bool> ret = peer->connect(_em, _host, _port, host, port);
+      peer->setDisconnectCallback(
+          bind(&BlockStoreNode::RemovePeer, this, addr));
+
+      DLOG(INFO) << "Node on port " << _port << " now has " 
+                 << _peers.size() << " neighbors.";
+
+      // Hook up the host with our other peers.
+      for (map< PeerAddr, shared_ptr<Peer> >::const_iterator i = _peers.begin();
+           i != _peers.end(); ++i) {
+        if (addr != i->first) {
+          peer->_client->call<bool, string, uint16_t>(
+            "addPeer", i->first.host, i->first.port);
+        }
+      }
+      return ret;
+    }
+  }
+
+  /**
+   * RPC server function used by remote nodes to add a BlockStore.
+   */
+  Future<bool> RPCAddBlockStore(string host, uint16_t port, uint64_t bsid) {
+    PeerAddr addr(host, port);
+    if (_peers.find(addr) != _peers.end()) {
+      if (_blockstores.find(bsid) != _blockstores.end()) {
+        LOG(WARNING) << "Peer " << host << ":" 
+                     << port << "tried to add existing BlockStore " << bsid;
+      } else {
+        shared_ptr<Peer> peer = _peers[addr];
+        _blockstores[bsid] = peer->registerBlockStore(bsid);
+        // TODO: Register blockstore as owned by peer at "addr".
+        return true;
+      }
+    }
+    return false;
+  }
 
   /**
    * Called periodically to incrementally check the state of stored blocks

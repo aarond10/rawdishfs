@@ -84,10 +84,10 @@ void putBlockHelper(
   }
   delete barrier;
 }
-}
+} // end anonmyous namespace
 
-BlockStoreNode::BlockStoreNode(EventManager *em)
-    : _em(em) {
+BlockStoreNode::BlockStoreNode(EventManager *em, const string& host)
+    : _em(em), _host(host) {
   
   shared_ptr<TcpListenSocket> s;
   while(s == NULL) {
@@ -95,6 +95,11 @@ BlockStoreNode::BlockStoreNode(EventManager *em)
     s = TcpListenSocket::create(em, _port);
   }
   _rpc_server = RPCServer::create(s);
+  _rpc_server->registerFunction<bool, string, uint16_t>("addPeer",
+      bind(&BlockStoreNode::RPCAddPeer, this, _1, _2));
+  _rpc_server->registerFunction<bool, uint64_t>(
+      "addBlockStore",
+      bind(&BlockStoreNode::RPCAddBlockStore, this, _host, _port, _1));
 }
 
 BlockStoreNode::~BlockStoreNode() {
@@ -105,28 +110,23 @@ void BlockStoreNode::start() {
   EventManager::WallTime t = EventManager::currentTime();
   _em->enqueue(std::tr1::bind(&BlockStoreNode::onTimer, this),
                t + TIMER_INTERVAL);
+  _rpc_server->start();
 }
 
 void BlockStoreNode::stop() {
   _rpc_server.reset();
+  // NOTE: Our timer will stop firing after _rpc_server is reset.
+  _stopped.wait();
 }
 
-void BlockStoreNode::addPeer(const string &ip, uint16_t port) {
-  _peers.insert(shared_ptr<Peer>(new Peer(ip, port)));
+bool BlockStoreNode::addPeer(const string &host, uint16_t port) {
+  return RPCAddPeer(host, port);
 }
 
 void BlockStoreNode::addBlockStore(uint64_t bsid, const string &pathname) {
-  _blockstores[bsid] = shared_ptr<FileBlockStore>(new FileBlockStore(pathname));
-}
-
-void BlockStoreNode::removeBlockStore(uint64_t bsid) {
-  if (_blockstores.find(bsid) != _blockstores.end()) {
-    _blockstores.erase(bsid);
-  }
-}
-
-uint64_t BlockStoreNode::getFreeSpace() const {
-  return -1;
+  _blockstores[bsid] = shared_ptr<BlockStore>(new FileBlockStore(pathname));
+  //RegisterRemoteBlockStore(_rpc_server, _blockstores[bsid], bsid);
+  // TODO(aarond10): Tell each of our peers about our new BlockStore.
 }
 
 BlockStore *BlockStoreNode::_findBestLocation(size_t hash) {
@@ -160,13 +160,6 @@ Future<IOBuffer *> BlockStoreNode::getBlock(const string &name) {
   // was added recently.
 
   return NULL;
-}
-
-void BlockStoreNode::setGCBloomFilter(BloomFilter *bloomfilter) {
-}
-
-vector<string> BlockStoreNode::getMissingBlocks() const {
-  return vector<string>();
 }
 
 void BlockStoreNode::onTimer() {
@@ -222,17 +215,9 @@ void BlockStoreNode::onTimer() {
     EventManager::WallTime t = EventManager::currentTime();
     _em->enqueue(std::tr1::bind(&BlockStoreNode::onTimer, this),
                  t + TIMER_INTERVAL);
+  } else {
+    _stopped.signal();
   }
-}
-
-BlockStoreNode::Peer::Peer(const string &ip, uint16_t port) {
-}
-
-BlockStoreNode::Peer::~Peer() {
-}
-
-void BlockStoreNode::Peer::sendBSBloomFilter(uint64_t bsid, 
-                                             const BloomFilter& bloomfilter) {
 }
 
 Future<bool> BlockStoreNode::Peer::setBlock(const string& name, 
@@ -247,26 +232,51 @@ Future<IOBuffer *> BlockStoreNode::Peer::getBlock(const string& name) {
 // TODO(aarond10): Move main() to its own file.
 int main(int argc, char *argv[]) {
   epoll_threadpool::EventManager em;
-  blockstore::BlockStoreNode bsn(&em);
+
+  em.start(5);
+
+  blockstore::BlockStoreNode bsn1(&em, "127.0.0.1");
+  blockstore::BlockStoreNode bsn2(&em, "127.0.0.1");
+  blockstore::BlockStoreNode bsn3(&em, "127.0.0.1");
+  blockstore::BlockStoreNode bsn4(&em, "127.0.0.1");
+  blockstore::BlockStoreNode bsn5(&em, "127.0.0.1");
 
   // TODO(aarond10): Temporary hard-coded BlockStore
-  bsn.addBlockStore(0x01234567, "./01234567/");
-  bsn.addBlockStore(0x89abcdef, "./89abcdef/");
-  bsn.addBlockStore(0x00112233, "./00112233/");
-  bsn.addBlockStore(0x44556677, "./44556677/");
-  bsn.addBlockStore(0x8899aabb, "./8899aabb/");
-  bsn.addBlockStore(0xccddeeff, "./ccddeeff/");
+  bsn1.addBlockStore(0x01234567, "./01234567/");
+  bsn1.addBlockStore(0x89abcdef, "./89abcdef/");
+  bsn2.addBlockStore(0x00112233, "./00112233/");
+  bsn2.addBlockStore(0x44556677, "./44556677/");
+  bsn3.addBlockStore(0x8899aabb, "./8899aabb/");
+  bsn3.addBlockStore(0xccddeeff, "./ccddeeff/");
+
+  bsn1.start();
+  bsn2.start();
+  bsn3.start();
+  bsn4.start();
+  bsn5.start();
 
   // TODO(aarond10): Temporary hard-coded peers
-  bsn.addPeer("192.168.1.100", 12345);
-  bsn.addPeer("192.168.1.101", 12345);
-  bsn.addPeer("192.168.1.102", 12345);
+  bsn1.addPeer("127.0.0.1", bsn2.port());
+  bsn2.addPeer("127.0.0.1", bsn3.port());
+  bsn3.addPeer("127.0.0.1", bsn4.port());
+  bsn4.addPeer("127.0.0.1", bsn5.port());
+  bsn5.addPeer("127.0.0.1", bsn1.port());
 
-  bsn.start();
+  LOG(INFO) << "Listening on ports "
+            << bsn1.port() << ", "
+            << bsn2.port() << ", "
+            << bsn3.port() << ", "
+            << bsn4.port() << ", "
+            << bsn5.port();
+
   while (true) {
     sleep(1);
   }
-  bsn.stop();
+  bsn1.stop();
+  bsn2.stop();
+  bsn3.stop();
+  bsn4.stop();
+  bsn5.stop();
 
   return 0;
 }

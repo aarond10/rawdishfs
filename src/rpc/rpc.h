@@ -369,9 +369,10 @@ class RPCServer {
   template<class A, class B, class C, class D, class E, class F>
   void registerFunction(const string name, function<Future<A>(B,C,D,E,F)> f);
 
- private:
-
+ protected:
   RPCServer(shared_ptr<TcpListenSocket> s);
+
+ private:
   void onAccept(shared_ptr<TcpSocket> s);
 
   shared_ptr<TcpListenSocket> _socket;
@@ -524,5 +525,5 @@ Future<A> RPCClient::call(const string name, A0 a0, A1 a1, A2 a2, A3 a3, A4 a4) 
       _internal->_reqId++, name, a0, a1, a2, a3, a4));
   return ret;
 }
-}
+}  // end rpc namespace
 #endif

@@ -46,7 +46,9 @@ namespace rpc {
  * this directory are shared with all other peers with eventual consistency
  * semantics. (We provide no timing or ordering guarentees)
  */
-class P2PDiscoveryServiceNode : public RPCServer {
+class P2PDiscoveryServiceNode 
+    : public RPCServer, 
+      public enable_shared_from_this<P2PDiscoveryServiceNode> {
  public:
   /**
    * Given a publically addressable IP and local port to listen on,
@@ -103,6 +105,13 @@ class P2PDiscoveryServiceNode : public RPCServer {
       EventManager *em, 
       const string& host, int port, 
       shared_ptr<TcpListenSocket> s);
+
+  /**
+   * Starts the node operating. Must be called exactly once after construction
+   * in order to use the class. (shared_from_this() can't be called from a
+   * constructor.
+   */
+  void start();
 
  private:
   EventManager *_em;

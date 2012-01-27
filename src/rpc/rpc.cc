@@ -127,7 +127,7 @@ void RPCServer::Connection::Internal::deferredRPCCall(
     function<Future<IOBuffer*>(IOBuffer*)> func,
     IOBuffer* args) {
   Future<IOBuffer*> ret = func(args);
-  ret.addCallback(bind(&Connection::Internal::responseCallback, this, id, ret));
+  ret.addCallback(bind(&Connection::Internal::responseCallback, shared_from_this(), id, ret));
 }
 
 void RPCServer::Connection::Internal::onReceive(IOBuffer *buf) {
@@ -159,12 +159,12 @@ void RPCServer::Connection::Internal::onReceive(IOBuffer *buf) {
       // for deep copying of objects so we pass a buffer around here that needs
       // to be unpacked in the other thread.
       _socket->getEventManager()->enqueue(bind(
-          &Connection::Internal::deferredRPCCall, this, id, 
+          &Connection::Internal::deferredRPCCall, shared_from_this(), id, 
           _funcs->at(name), new IOBuffer(req.get<2>().ptr, req.get<2>().size)));
     } else {
       LOG(ERROR) << "Unknown RPC method: " << name << ". Disconnecting.";
       _socket->getEventManager()->enqueue(
-          std::tr1::bind(&Connection::Internal::disconnect, this));
+          std::tr1::bind(&Connection::Internal::disconnect, shared_from_this()));
     }
   }
 }

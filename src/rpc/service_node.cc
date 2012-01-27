@@ -38,8 +38,10 @@ shared_ptr<P2PDiscoveryServiceNode> P2PDiscoveryServiceNode::create(
     port = (rand()%40000) + 1024;
     s = TcpListenSocket::create(em, port);
   }
-  return shared_ptr<P2PDiscoveryServiceNode>(
+  shared_ptr<P2PDiscoveryServiceNode> ret(
       new P2PDiscoveryServiceNode(em, host, port, s));
+  ret->start();
+  return ret;
 }
 
 shared_ptr<P2PDiscoveryServiceNode> P2PDiscoveryServiceNode::create(
@@ -54,6 +56,12 @@ shared_ptr<P2PDiscoveryServiceNode> P2PDiscoveryServiceNode::create(
 }
 
 P2PDiscoveryServiceNode::~P2PDiscoveryServiceNode() {
+  _group_callbacks.clear();
+  for (map< HostPortPair, shared_ptr<Peer> >::const_iterator i = _peers.begin();
+       i != _peers.end(); ++i) {
+    //i->second->setDisconnectCallback(NULL);
+  }
+  _peers.clear();
   pthread_mutex_destroy(&_mutex);
 }
 
@@ -140,7 +148,7 @@ Future<bool> P2PDiscoveryServiceNode::RPCAddPeer(string host, uint16_t port) {
     }
     shared_ptr<Peer> peer(new Peer(HostPortPair(host, port), s));
     peer->setDisconnectCallback(
-        bind(&P2PDiscoveryServiceNode::RemovePeer, this, addr));
+        bind(&P2PDiscoveryServiceNode::RemovePeer, shared_from_this(), addr));
     pthread_mutex_lock(&_mutex);
     _peers[addr] = peer;
     pthread_mutex_unlock(&_mutex);
@@ -217,12 +225,15 @@ P2PDiscoveryServiceNode::P2PDiscoveryServiceNode(
     shared_ptr<TcpListenSocket> s) : 
         _em(em), _host(host), _port(port), RPCServer(s) {
   pthread_mutex_init(&_mutex, 0);
+}
+
+void P2PDiscoveryServiceNode::start() {
   registerFunction<bool, string, uint16_t>("addPeer",
-      bind(&P2PDiscoveryServiceNode::RPCAddPeer, this, _1, _2));
+      bind(&P2PDiscoveryServiceNode::RPCAddPeer, shared_from_this(), _1, _2));
   registerFunction<bool, string, string>("addToGroup",
-      bind(&P2PDiscoveryServiceNode::RPCAddToGroup, this, _1, _2));
+      bind(&P2PDiscoveryServiceNode::RPCAddToGroup, shared_from_this(), _1, _2));
   registerFunction<bool, string, string>("removeFromGroup",
-      bind(&P2PDiscoveryServiceNode::RPCRemoveFromGroup, this, _1, _2));
+      bind(&P2PDiscoveryServiceNode::RPCRemoveFromGroup, shared_from_this(), _1, _2));
 }
 
 }  // end rpc namespace

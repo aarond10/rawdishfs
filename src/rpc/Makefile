@@ -1,10 +1,11 @@
 include ../Makefile.config
-CPPFLAGS:= ${CPPFLAGS} -O3
+CPPFLAGS:= ${CPPFLAGS} -g #-O3
 LDFLAGS:= ${LDFLAGS} -lpthread -lstdc++ -lglog -lgtest -lgtest_main -lmsgpack -lepoll_threadpool
 
 all: rpc_test rpc_benchmark service_node_test
 
 rpc.a: rpc.o
+	ar cr $@ $^
 
 rpc_test: rpc_test.o rpc.a
 	g++ -o $@ $^ ${LDFLAGS}

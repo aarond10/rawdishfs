@@ -45,7 +45,7 @@ namespace rpc {
 
 using epoll_threadpool::EventManager;
 using epoll_threadpool::Notification;
-using rpc::P2PDiscoveryServiceNode;
+using rpc::ServiceNode;
 using std::tr1::shared_ptr;
 using std::list;
 using std::string;
@@ -56,6 +56,7 @@ void GroupCallbackHelper(string expectedValue,
   LOG(INFO) << "Callback triggered with value " << value << " and isAdded " << isAdded;
   if (expectedValue == value && isAdded) {
     n->signal();
+  } else {
   }
 }
 
@@ -66,17 +67,11 @@ TEST(ServiceNodeTest, Basics) {
 
   em.start(4);
 
-  shared_ptr<P2PDiscoveryServiceNode> node1(P2PDiscoveryServiceNode::create(&em, "127.0.0.1"));
-  shared_ptr<P2PDiscoveryServiceNode> node2(P2PDiscoveryServiceNode::create(&em, "127.0.0.1"));
-  shared_ptr<P2PDiscoveryServiceNode> node3(P2PDiscoveryServiceNode::create(&em, "127.0.0.1"));
-  shared_ptr<P2PDiscoveryServiceNode> node4(P2PDiscoveryServiceNode::create(&em, "127.0.0.1"));
-  shared_ptr<P2PDiscoveryServiceNode> node5(P2PDiscoveryServiceNode::create(&em, "127.0.0.1"));
-
-  node1->start();
-  node2->start();
-  node3->start();
-  node4->start();
-  node5->start();
+  shared_ptr<ServiceNode> node1(ServiceNode::create(&em, "127.0.0.1"));
+  shared_ptr<ServiceNode> node2(ServiceNode::create(&em, "127.0.0.1"));
+  shared_ptr<ServiceNode> node3(ServiceNode::create(&em, "127.0.0.1"));
+  shared_ptr<ServiceNode> node4(ServiceNode::create(&em, "127.0.0.1"));
+  shared_ptr<ServiceNode> node5(ServiceNode::create(&em, "127.0.0.1"));
 
   Notification n1, n2, n3, n4, n5;
 
@@ -115,8 +110,6 @@ TEST(ServiceNodeTest, Basics) {
   n4.wait();
   n5.wait();
 
-  usleep(10000);
-
   LOG(INFO) << "Freeing nodes.";
 
   node1.reset();
@@ -124,6 +117,8 @@ TEST(ServiceNodeTest, Basics) {
   node3.reset();
   node4.reset();
   node5.reset();
+
+  usleep(10000);
 }
 
 }

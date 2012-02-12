@@ -30,7 +30,14 @@
 
 namespace rpc {
 
-shared_ptr<P2PDiscoveryServiceNode> P2PDiscoveryServiceNode::create(
+namespace {
+void DummyFunc(shared_ptr<RPCClient> client) {
+  // Dummy function used to ensure we don't destroy out peer before we get a result.
+}
+}  // end anonymous namespace
+
+
+shared_ptr<ServiceNode> ServiceNode::create(
     EventManager* em, const string& host) {
   uint16_t port;
   shared_ptr<TcpListenSocket> s;
@@ -38,49 +45,89 @@ shared_ptr<P2PDiscoveryServiceNode> P2PDiscoveryServiceNode::create(
     port = (rand()%40000) + 1024;
     s = TcpListenSocket::create(em, port);
   }
-  shared_ptr<P2PDiscoveryServiceNode> ret(
-      new P2PDiscoveryServiceNode(em, host, port, s));
-  ret->start();
-  return ret;
+  return shared_ptr<ServiceNode>(
+      new ServiceNode(em, host, port, s));
 }
 
-shared_ptr<P2PDiscoveryServiceNode> P2PDiscoveryServiceNode::create(
+shared_ptr<ServiceNode> ServiceNode::create(
     EventManager* em, const string& host, int port) {
   shared_ptr<TcpListenSocket> s(TcpListenSocket::create(em, port));
   if (s != NULL) {
-    return shared_ptr<P2PDiscoveryServiceNode>(
-        new P2PDiscoveryServiceNode(em, host, port, s));
+    return shared_ptr<ServiceNode>(
+        new ServiceNode(em, host, port, s));
   } else {
-    return shared_ptr<P2PDiscoveryServiceNode>();
+    return shared_ptr<ServiceNode>();
   }
 }
 
-P2PDiscoveryServiceNode::~P2PDiscoveryServiceNode() {
+ServiceNode::ServiceNode(
+    EventManager *em, 
+    const string& host, int port, 
+    shared_ptr<TcpListenSocket> s) : 
+        _rpc_server(RPCServer::create(s)),
+        _internal(new Internal(em, host, port)) {
+  _rpc_server->registerFunction<bool, string, uint16_t>("addPeer",
+      bind(&ServiceNode::Internal::RPCAddPeer, 
+           _internal, _1, _2));
+  _rpc_server->registerFunction<bool, string, string>("addToGroup",
+      bind(&ServiceNode::Internal::RPCAddToGroup, 
+           _internal, _1, _2));
+  _rpc_server->registerFunction<bool, string, string>("removeFromGroup",
+      bind(&ServiceNode::Internal::RPCRemoveFromGroup, 
+           _internal, _1, _2));
+  _rpc_server->start();
+}
+
+ServiceNode::~ServiceNode() {
+  _internal->shutdown();
+  _rpc_server.reset();
+  _internal.reset();
+}
+
+ServiceNode::Internal::Internal(
+    EventManager *em, const string& host, uint16_t port)
+        : _em(em), _host(host), _port(port) {
+  pthread_mutex_init(&_mutex, 0);
+}
+
+ServiceNode::Internal::~Internal() {
+  pthread_mutex_lock(&_mutex);
   _group_callbacks.clear();
-  for (map< HostPortPair, shared_ptr<Peer> >::const_iterator i = _peers.begin();
+  for (map< HostPortPair, shared_ptr<RPCClient> >::const_iterator i = _peers.begin();
        i != _peers.end(); ++i) {
-    //i->second->setDisconnectCallback(NULL);
+    i->second->setDisconnectCallback(NULL);
+    i->second->disconnect();
   }
   _peers.clear();
+  pthread_mutex_unlock(&_mutex);
   pthread_mutex_destroy(&_mutex);
 }
 
-void P2PDiscoveryServiceNode::addPeer(const string& host, uint16_t port) {
-  RPCAddPeer(host, port);
+void ServiceNode::Internal::shutdown() {
+  _peers.clear();
 }
 
-void P2PDiscoveryServiceNode::addToGroup(
+void ServiceNode::Internal::addToGroup(
     const string &group, const string &name) {
   pthread_mutex_lock(&_mutex);
+
+  // Notify other peers. We do this even if reference count > 1 so they all
+  // have the same state.
+  for (map< HostPortPair, shared_ptr<RPCClient> >::iterator i = _peers.begin();
+     i != _peers.end(); ++i) {
+    i->second->call<bool, string, string>("addToGroup", group, name)
+        .addCallback(bind(&DummyFunc, i->second));
+  }
+
+  // Group membership is reference counted. Events will only fire the first
+  // time a member is added
   if (_groups[group].find(name) != _groups[group].end()) {
     _groups[group][name]++;
   } else {
     _groups[group][name] = 1;
-    for (map< HostPortPair, shared_ptr<Peer> >::iterator i = _peers.begin();
-       i != _peers.end(); ++i) {
-      i->second->call<bool, string, string>("addToGroup", group, name);
-    }
-    for(list<function<void(const string&, bool)> >::iterator i = _group_callbacks[group].begin();
+    // Trigger local callbacks.
+    for(vector<function<void(const string&, bool)> >::iterator i = 
+        _group_callbacks[group].begin();
         i != _group_callbacks[group].end(); ++i) {
       (*i)(name, true);
     }
@@ -88,34 +135,44 @@ void P2PDiscoveryServiceNode::addToGroup(
   pthread_mutex_unlock(&_mutex);
 }
 
-void P2PDiscoveryServiceNode::removeFromGroup(
+void ServiceNode::Internal::removeFromGroup(
     const string &group, const string &name) {
   pthread_mutex_lock(&_mutex);
+
+  // Notify other peers.
+  for (map< HostPortPair, shared_ptr<RPCClient> >::iterator i = _peers.begin();
+       i != _peers.end(); ++i) {
+    i->second->call<bool, string, string>("removeFromGroup", group, name)
+        .addCallback(bind(&DummyFunc, i->second));
+  }
+
+  // Trigger local event if reference count went to zero.
   if (_groups[group].find(name) != _groups[group].end()) {
     if (_groups[group][name] == 1) {
       _groups[group].erase(name);
-      for (map< HostPortPair, shared_ptr<Peer> >::iterator i = _peers.begin();
-           i != _peers.end(); ++i) {
-        i->second->call<bool, string, string>("removeFromGroup", group, name);
-      }
       if (_group_callbacks.find(group) != _group_callbacks.end()) {
-        for(list<function<void(const string&, bool)> >::iterator i = _group_callbacks[group].begin();
+        for(vector<function<void(const string&, bool)> >::iterator i = _group_callbacks[group].begin();
             i != _group_callbacks[group].end(); ++i) {
           (*i)(name, false);
         }
       }
     }
   } else {
-    _groups[group][name]--;
+    if (_groups[group][name] > 1) {
+      _groups[group][name]--;
+    } else {
+      DLOG(ERROR) << "Reference count decremented below zero.";
+    }
   }
   pthread_mutex_unlock(&_mutex);
 }
 
-void P2PDiscoveryServiceNode::addGroupCallback(
+void ServiceNode::Internal::addGroupCallback(
     const string& group, function<void(const string&, bool)> cb) {
   pthread_mutex_lock(&_mutex);
   _group_callbacks[group].push_back(cb);
-  // Notify host of our group memberships
+  // Notify cb of our group memberships so far so they have a complete
+  // snapshot.
   for (map<string, int>::iterator i = _groups[group].begin();
        i != _groups[group].end(); ++i) {
     cb(i->first, true);
@@ -123,50 +180,55 @@ void P2PDiscoveryServiceNode::addGroupCallback(
   pthread_mutex_unlock(&_mutex);
 }
 
-P2PDiscoveryServiceNode::Peer::Peer(
-    const HostPortPair& addr, shared_ptr<TcpSocket> s) : _addr(addr), RPCClient(s) {
+void ServiceNode::Internal::removeGroupCallback(const string& group) {
+  pthread_mutex_lock(&_mutex);
+  _group_callbacks.erase(group);
+  pthread_mutex_unlock(&_mutex);
 }
 
-void P2PDiscoveryServiceNode::RemovePeer(HostPortPair addr) {
+void ServiceNode::Internal::RemovePeer(HostPortPair addr) {
   pthread_mutex_lock(&_mutex);
-  shared_ptr<Peer> peer = _peers[addr];
+  DLOG(INFO) << "Internal::RemovePeer( " << addr.first << ":" << addr.second << ")";
+  shared_ptr<RPCClient> peer = _peers[addr];
   // TODO: Remove from any groups this peer is registered in.
   _peers.erase(addr);
   pthread_mutex_unlock(&_mutex);
 }
 
-Future<bool> P2PDiscoveryServiceNode::RPCAddPeer(string host, uint16_t port) {
+Future<bool> ServiceNode::Internal::RPCAddPeer(string host, uint16_t port) {
   HostPortPair addr(host, port);
   if (_peers.find(addr) != _peers.end()) {
     // Already connected.
     return true;
   } else {
     shared_ptr<TcpSocket> s = TcpSocket::connect(_em, host, port);
-    if (socket == NULL) {
+    if (s == NULL) {
       DLOG(INFO) << "Failed to connect to peer at " << host << ":" << port;
       return false;
     }
-    shared_ptr<Peer> peer(new Peer(HostPortPair(host, port), s));
-    peer->setDisconnectCallback(
-        bind(&P2PDiscoveryServiceNode::RemovePeer, shared_from_this(), addr));
     pthread_mutex_lock(&_mutex);
+
+    shared_ptr<RPCClient> peer(new RPCClient(s));
+    peer->setDisconnectCallback(
+        bind(&ServiceNode::Internal::RemovePeer, shared_from_this(), addr));
     _peers[addr] = peer;
-    pthread_mutex_unlock(&_mutex);
+
     peer->start();
     Future<bool> ret = peer->call<bool, string, uint16_t>(
         "addPeer", _host, _port);
 
-    pthread_mutex_lock(&_mutex);
+    ret.addCallback(bind(&DummyFunc, peer));
 
     DLOG(INFO) << "Node on port " << _port << " now has " 
                << _peers.size() << " neighbors.";
 
     // Hook up the host with our other peers.
-    for (map< HostPortPair, shared_ptr<Peer> >::const_iterator i = _peers.begin();
+    for (map< HostPortPair, shared_ptr<RPCClient> >::const_iterator i = _peers.begin();
          i != _peers.end(); ++i) {
       if (addr != i->first) {
         peer->call<bool, string, uint16_t>(
-          "addPeer", i->first.first, i->first.second);
+          "addPeer", i->first.first, i->first.second)
+              .addCallback(bind(&DummyFunc, peer));
       }
     }
 
@@ -175,7 +237,8 @@ Future<bool> P2PDiscoveryServiceNode::RPCAddPeer(string host, uint16_t port) {
          i != _groups.end(); ++i) {
       for (map<string, int>::iterator j = i->second.begin();
          j != i->second.end(); ++j) {
-        peer->call<bool, string, string>("addToGroup", i->first, j->first);
+        peer->call<bool, string, string>("addToGroup", i->first, j->first)
+            .addCallback(bind(&DummyFunc, peer));
       }
     }
     pthread_mutex_unlock(&_mutex);
@@ -183,14 +246,14 @@ Future<bool> P2PDiscoveryServiceNode::RPCAddPeer(string host, uint16_t port) {
   }
 }
 
-Future<bool> P2PDiscoveryServiceNode::RPCAddToGroup(string group, string value) {
+Future<bool> ServiceNode::Internal::RPCAddToGroup(string group, string value) {
   pthread_mutex_lock(&_mutex);
   if (_groups[group].find(value) != _groups[group].end()) {
     _groups[group][value]++;
   } else {
     _groups[group][value] = 1;
     if (_group_callbacks.find(group) != _group_callbacks.end()) {
-      for(list<function<void(const string&, bool)> >::iterator i = _group_callbacks[group].begin();
+      for(vector<function<void(const string&, bool)> >::iterator i = _group_callbacks[group].begin();
           i != _group_callbacks[group].end(); ++i) {
         (*i)(value, true);
       }
@@ -200,13 +263,13 @@ Future<bool> P2PDiscoveryServiceNode::RPCAddToGroup(string group, string value) 
   return true;
 }
 
-Future<bool> P2PDiscoveryServiceNode::RPCRemoveFromGroup(string group, string value) {
+Future<bool> ServiceNode::Internal::RPCRemoveFromGroup(string group, string value) {
   pthread_mutex_lock(&_mutex);
   if (_groups[group].find(value) != _groups[group].end()) {
     if (_groups[group][value] == 1) {
       _groups[group].erase(value);
       if (_group_callbacks.find(group) != _group_callbacks.end()) {
-        for(list<function<void(const string&, bool)> >::iterator i = _group_callbacks[group].begin();
+        for(vector<function<void(const string&, bool)> >::iterator i = _group_callbacks[group].begin();
             i != _group_callbacks[group].end(); ++i) {
           (*i)(value, false);
         }
@@ -217,23 +280,6 @@ Future<bool> P2PDiscoveryServiceNode::RPCRemoveFromGroup(string group, string va
   }
   pthread_mutex_unlock(&_mutex);
   return true;
-}
-
-P2PDiscoveryServiceNode::P2PDiscoveryServiceNode(
-    EventManager *em, 
-    const string& host, int port, 
-    shared_ptr<TcpListenSocket> s) : 
-        _em(em), _host(host), _port(port), RPCServer(s) {
-  pthread_mutex_init(&_mutex, 0);
-}
-
-void P2PDiscoveryServiceNode::start() {
-  registerFunction<bool, string, uint16_t>("addPeer",
-      bind(&P2PDiscoveryServiceNode::RPCAddPeer, shared_from_this(), _1, _2));
-  registerFunction<bool, string, string>("addToGroup",
-      bind(&P2PDiscoveryServiceNode::RPCAddToGroup, shared_from_this(), _1, _2));
-  registerFunction<bool, string, string>("removeFromGroup",
-      bind(&P2PDiscoveryServiceNode::RPCRemoveFromGroup, shared_from_this(), _1, _2));
 }
 
 }  // end rpc namespace

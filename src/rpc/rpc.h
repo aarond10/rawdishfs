@@ -85,13 +85,18 @@ void serializeFuture(Future<A> src, Future<IOBuffer*> dst) {
  */
 template<class A>
 void deserializeFuture(Future<A> dst, Future<IOBuffer*> src) {
-  msgpack::unpacked msg;
-  msgpack::unpack(&msg, src.get()->pulldown(src.get()->size()), src.get()->size());
-  msgpack::object obj = msg.get();
-  A a;
-  obj.convert(&a);
-  dst.set(a);
-  delete src.get();
+  if (src.get()) {
+    msgpack::unpacked msg;
+    msgpack::unpack(&msg, src.get()->pulldown(src.get()->size()), src.get()->size());
+    msgpack::object obj = msg.get();
+    A a;
+    obj.convert(&a);
+    dst.set(a);
+    delete src.get();
+  } else {
+    // We assume we can create an empty version of all return types signifying failure.
+    dst.set(A());
+  }
 }
 
 /**

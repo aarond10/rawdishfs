@@ -46,50 +46,54 @@ namespace rpc {
  * this directory are shared with all other peers with eventual consistency
  * semantics. (We provide no timing or ordering guarentees)
  */
-class P2PDiscoveryServiceNode 
-    : public RPCServer, 
-      public enable_shared_from_this<P2PDiscoveryServiceNode> {
+class ServiceNode {
  public:
   /**
    * Given a publically addressable IP and local port to listen on,
    * creates a new P2P Discovery Service Node.
    */
-  static shared_ptr<P2PDiscoveryServiceNode> create(
+  static shared_ptr<ServiceNode> create(
     EventManager* em, const string& host);
-  static shared_ptr<P2PDiscoveryServiceNode> create(
+  static shared_ptr<ServiceNode> create(
       EventManager* em, const string& host, int port);
-  virtual ~P2PDiscoveryServiceNode();
+  virtual ~ServiceNode();
 
   /**
    * Returns the hostname we're listening on for incoming connections.
    */
-  const string& host() const { return _host; }
+  const string& host() const { return _internal->host(); }
 
   /**
    * Returns the port we're listening on for incoming connections.
    */
-  uint16_t port() const { return _port; }
+  uint16_t port() const { return _internal->port(); }
 
   /**
    * Connects to a given peer. Only a single peer is required to
    * connect to the entire network as peers will share their addresses with
    * each other.
    */
-  void addPeer(const string& host, uint16_t port);
+  void addPeer(const string& host, uint16_t port) {
+    _internal->RPCAddPeer(host, port);
+  }
 
   /**
    * Adds an item to a group. Either strings may be anything.
-   * The cost is O(N) in number of peers.
+   * The network + processing cost is O(N) in number of peers.
    */
-  void addToGroup(const string &group, const string &name);
+  void addToGroup(const string &group, const string &name) {
+    _internal->addToGroup(group, name);
+  }
 
   /**
    * Removes an item to a group. Does nothing if the group and/or item
    * don't exist. This will also be done automatically if the peer
    * disconnects.
-   * The cost is O(N) in number of peers.
+   * The network + processing cost is O(N) in number of peers.
    */
-  void removeFromGroup(const string &group, const string &name);
+  void removeFromGroup(const string &group, const string &name) {
+    _internal->removeFromGroup(group, name);
+  }
 
   /**
    * Registers a callback to be triggered whenever a member is added or
@@ -98,64 +102,71 @@ class P2PDiscoveryServiceNode
    * an add or a remove respectively.
    */
   void addGroupCallback(
-      const string& group, function<void(const string&, bool)> cb);
+      const string& group, function<void(const string&, bool)> cb) {
+    _internal->addGroupCallback(group, cb);
+  }
+
+  /**
+   * Deregisters all callbacks for a specific group.
+   */
+  void removeGroupCallback(const string& group) {
+    _internal->removeGroupCallback(group);
+  }
 
  protected:
-  P2PDiscoveryServiceNode(
-      EventManager *em, 
-      const string& host, int port, 
-      shared_ptr<TcpListenSocket> s);
+  ServiceNode(EventManager *em, const string& host, int port, 
+              shared_ptr<TcpListenSocket> s);
 
   /**
-   * Starts the node operating. Must be called exactly once after construction
-   * in order to use the class. (shared_from_this() can't be called from a
-   * constructor.
+   * Internal class that does most of our work. We reference count 
+   * this rather than ourself to avoid circular reference.
    */
-  void start();
+  class Internal : public enable_shared_from_this<Internal> {
+   public:
+    Internal(EventManager* em, const string& host, uint16_t port);
+    virtual ~Internal();
+
+    /**
+     * Kills all peer connections.
+     */
+    void shutdown();
+
+    const string& host() const { return _host; }
+    uint16_t port() const { return _port; }
+    void addToGroup(const string& group, const string& name);
+    void removeFromGroup(const string& group, const string& name);
+    void addGroupCallback(const string& group, 
+                          function<void(const string&, bool)> cb);
+    void removeGroupCallback(const string& group);
+   private:
+    typedef std::pair<string, uint16_t> HostPortPair;
+
+    pthread_mutex_t _mutex;
+    EventManager *_em;
+    string _host;
+    uint16_t _port;
+
+    map<HostPortPair, shared_ptr<RPCClient> > _peers;
+    map<string, map<string, int> > _groups;
+    map<string, vector< function<void(const string&, bool)> > > _group_callbacks;
+
+    /**
+     * Callback method triggered when a connection is lost.
+     */
+    void RemovePeer(HostPortPair addr);
+
+   public:
+    /**
+     * RPC Functions
+     */
+    Future<bool> RPCAddPeer(string host, uint16_t port);
+    Future<bool> RPCAddToGroup(string group, string value);
+    Future<bool> RPCRemoveFromGroup(string group, string value);
+  };
 
  private:
-  EventManager *_em;
-  string _host;
-  uint16_t _port;
-
-  typedef std::pair<string, uint16_t> HostPortPair;
-
-  /**
-   * Internal class that represents a peer connection.
-   */
-  class Peer : public RPCClient {
-   public:
-    Peer(const HostPortPair& addr, shared_ptr<TcpSocket> s);
-    virtual ~Peer() {}
-
-   private:
-    HostPortPair _addr;
-  };
-  map<HostPortPair, shared_ptr<Peer> > _peers;
-  pthread_mutex_t _mutex;
-  map<string, map<string, int> > _groups;
-  map<string, list< function<void(const string&, bool)> > > _group_callbacks;
-
-  /**
-   * Callback method triggered when a connection is lost.
-   */
-  void RemovePeer(HostPortPair addr);
-
-  /**
-   * RPC method for addPeer calls. Attempts to connect to new peers
-   * and returns true for already-connected peers.
-   */
-  Future<bool> RPCAddPeer(string host, uint16_t port);
-
-  /**
-   * RPC method for adding to a group.
-   */
-  Future<bool> RPCAddToGroup(string group, string value);
-
-  /**
-   * RPC method for removing from a group.
-   */
-  Future<bool> RPCRemoveFromGroup(string group, string value);
+  shared_ptr<RPCServer> _rpc_server;
+  shared_ptr<Internal> _internal;
 };
 
 

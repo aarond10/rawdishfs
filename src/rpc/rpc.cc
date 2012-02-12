@@ -42,6 +42,7 @@ RPCServer::RPCServer(shared_ptr<TcpListenSocket> s)
 }
 
 RPCServer::~RPCServer() {
+  _socket->setAcceptCallback(NULL);
 }
 
 void RPCServer::start() {
@@ -93,6 +94,8 @@ RPCServer::Connection::Internal::Internal(
 }
 
 RPCServer::Connection::Internal::~Internal() {
+  _socket->setReceiveCallback(NULL);
+  _socket->setDisconnectCallback(NULL);
 }
 
 void RPCServer::Connection::Internal::start() {
@@ -185,6 +188,7 @@ RPCClient::RPCClient(shared_ptr<TcpSocket> s)
 }
 
 RPCClient::~RPCClient() {
+  _internal->setDisconnectCallback(NULL);
   _internal->disconnect();
 }
 
@@ -224,7 +228,7 @@ void RPCClient::Internal::disconnect() {
   for(map< uint64_t, function<void(IOBuffer*)> >::iterator i = 
       _respCallbacks.begin(); i != _respCallbacks.end(); i++) {
     LOG(WARNING) << "Pending callbacks for RPCClient will be aborted.";
-    // TODO: Notify aborted RPC calls?.
+    i->second(NULL);
   }
   _respCallbacks.clear();
 }
